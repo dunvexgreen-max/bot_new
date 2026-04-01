@@ -275,3 +275,206 @@ export const searchUserMemoryTool = tool({
     } catch (e: any) { return { error: e.message } }
   }
 })
+
+export const fetchWebContentTool = tool({
+  description: 'Fetch and extract clean text content from a specific website URL. Use this when a user shares a link and you need to read its content.',
+  inputSchema: z.object({
+    url: z.string().url().describe('The URL of the website to extract content from.')
+  }),
+  execute: async ({ url }) => {
+    const config = useRuntimeConfig()
+    const apiKey = config.tavilyApiKey || process.env.TAVILY_API_KEY
+
+    // Stage 1: Try Tavily Extract (Best quality text)
+    try {
+      const response: any = await $fetch('https://api.tavily.com/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: {
+          api_key: apiKey,
+          urls: [url]
+        },
+        timeout: 15000
+      })
+
+      if (response.results && response.results.length > 0 && (response.results[0].raw_content || response.results[0].text)) {
+        const result = response.results[0]
+        return {
+          success: true,
+          source: 'tavily-extract',
+          url: result.url,
+          title: result.title,
+          content: result.raw_content || result.text
+        }
+      }
+    } catch (e: any) {
+      console.warn(`[AI-Tool] Tavily Extract failed for ${url}:`, e.message)
+    }
+
+    // Stage 2: Fallback to Tavily Search (Better at finding indexed/cached content for protected sites)
+    try {
+      const searchResponse: any = await $fetch('https://api.tavily.com/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: {
+          api_key: apiKey,
+          query: url,
+          search_depth: 'advanced',
+          include_answer: true,
+          max_results: 1
+        },
+        timeout: 10000
+      })
+
+      if (searchResponse.answer || (searchResponse.results && searchResponse.results.length > 0)) {
+        const content = searchResponse.answer || searchResponse.results[0].content
+        return {
+          success: true,
+          source: 'tavily-search',
+          url,
+          title: searchResponse.results?.[0]?.title || 'Search Result',
+          content: content + '\n\n(Note: This was retrieved via search fallback as direct extraction was blocked.)'
+        }
+      }
+    } catch (e: any) {
+      console.warn(`[AI-Tool] Tavily Search fallback failed for ${url}:`, e.message)
+    }
+
+    // Stage 3: Fallback to Jina Reader (Robust alternative scraping pipeline)
+    try {
+      const jinaResponse = await $fetch(`https://r.jina.ai/${url}`, {
+        headers: { 'Accept': 'application/json' },
+        timeout: 15000
+      }) as any
+      
+      if (jinaResponse && jinaResponse.data) {
+        return {
+          success: true,
+          source: 'jina-reader',
+          url: jinaResponse.data.url,
+          title: jinaResponse.data.title,
+          content: jinaResponse.data.content
+        }
+      }
+    } catch (e: any) {
+      console.error(`[AI-Tool] All extraction methods failed for ${url}:`, e.message)
+    }
+
+    return { 
+      error: 'Hệ thống bảo mật của website này đang ngăn chặn việc bóc tách dữ liệu tự động. Vui lòng copy nội dung hoặc chụp ảnh gửi trực tiếp để tôi hỗ trợ nhé.' 
+    }
+  }
+})
+
+// --- YouTube Transcript Helpers (Re-implemented for reliability) ---
+
+const YT_ID_REGEX = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i
+const YT_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.83 Safari/537.36,gzip(gfe)'
+const YT_API_URL = 'https://www.youtube.com/youtubei/v1/player?prettyPrint=false'
+const YT_CLIENT_VERSION = '20.10.38'
+const YT_CONTEXT = { client: { clientName: 'ANDROID', clientVersion: YT_CLIENT_VERSION } }
+
+function extractVideoId(url: string): string {
+  if (url.length === 11) return url
+  const match = url.match(YT_ID_REGEX)
+  if (match && match[1]) return match[1]
+  throw new Error('Could not retrieve YouTube video ID.')
+}
+
+async function fetchYoutubeTranscript(url: string) {
+  const videoId = extractVideoId(url)
+  
+  // Try InnerTube API (Android client)
+  try {
+    const response = await fetch(YT_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'User-Agent': `com.google.android.youtube/${YT_CLIENT_VERSION} (Linux; U; Android 14)` },
+      body: JSON.stringify({ context: YT_CONTEXT, videoId })
+    })
+    
+    if (response.ok) {
+      const data: any = await response.json()
+      const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks
+      if (Array.isArray(tracks) && tracks.length > 0) {
+        return await fetchAndParseTranscript(tracks[0].baseUrl)
+      }
+    }
+  } catch (e) {
+    console.error('InnerTube fetching failed:', e)
+  }
+
+  // Fallback to Watch Page parsing
+  try {
+    const pageText = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
+      headers: { 'User-Agent': YT_USER_AGENT }
+    }).then(r => r.text())
+    
+    const jsonMatch = pageText.match(/var ytInitialPlayerResponse = (\{.+?\});/)
+    if (jsonMatch) {
+      const playerResponse = JSON.parse(jsonMatch[1])
+      const tracks = playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks
+      if (Array.isArray(tracks) && tracks.length > 0) {
+        return await fetchAndParseTranscript(tracks[0].baseUrl)
+      }
+    }
+  } catch (e) {
+    console.error('Web page fetching failed:', e)
+  }
+
+  throw new Error('No transcripts found for this video.')
+}
+
+async function fetchAndParseTranscript(baseUrl: string) {
+  const xml = await fetch(baseUrl, { headers: { 'User-Agent': YT_USER_AGENT } }).then(r => r.text())
+  
+  const segments = []
+  const pRegex = /<p\s+t="(\d+)"\s+d="(\d+)"[^>]*>([\s\S]*?)<\/p>/g
+  let match
+  
+  while ((match = pRegex.exec(xml)) !== null) {
+    const start = parseInt(match[1], 10)
+    const duration = parseInt(match[2], 10)
+    let text = match[3]
+    
+    // Simple entity decode and tag removal
+    text = text.replace(/<[^>]+>/g, '')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+    
+    if (text.trim()) {
+      segments.push({ text: text.trim(), duration, offset: start })
+    }
+  }
+  
+  return segments
+}
+
+export const fetchYoutubeTranscriptTool = tool({
+  description: 'Extracts the transcript/captions from a YouTube video given its URL.',
+  parameters: z.object({
+    url: z.string().describe('The URL of the YouTube video.')
+  }),
+  execute: async ({ url }) => {
+    try {
+      const transcript = await fetchYoutubeTranscript(url)
+      
+      if (!transcript || transcript.length === 0) {
+        return { error: 'No transcript found for this video. It might not have captions enabled.' }
+      }
+
+      // Combine transcript parts into a single text
+      const fullText = transcript.map(part => part.text).join(' ')
+      
+      return {
+        url,
+        transcript: fullText,
+        segments: transcript
+      }
+    } catch (e: any) {
+      return { error: `Failed to fetch YouTube transcript: ${e.message}\nNote: Some videos may not have available transcripts or are region-restricted.` }
+    }
+  }
+})

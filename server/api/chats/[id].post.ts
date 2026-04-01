@@ -20,7 +20,9 @@ import {
   syncFirestoreToSupabaseTool,
   queryAppDatabaseTool,
   saveUserMemoryTool,
-  searchUserMemoryTool
+  searchUserMemoryTool,
+  fetchWebContentTool,
+  fetchYoutubeTranscriptTool
 } from '../../utils/ai-tools'
 
 /**
@@ -77,76 +79,80 @@ async function processMessagesForAI(event: any, messages: UIMessage[]) {
 
   const processedMessages = await Promise.all(
     messages.map(async (message: any) => {
-      // AI SDK might use 'parts' OR 'experimental_attachments'
-      const parts = message.parts || []
-      const attachments = message.experimental_attachments || []
+      const originalParts = message.parts || []
+      const experimentalAttachments = message.experimental_attachments || []
       
-      if (parts.length === 0 && attachments.length === 0) {
-        return message
+      // Combine parts and attachments into a unique list of candidate parts
+      const candidateParts = [...originalParts]
+      
+      // Add experimental attachments that aren't already represented in parts
+      for (const att of experimentalAttachments) {
+        if (!candidateParts.some(p => p.url === att.url)) {
+          candidateParts.push({
+            type: att.contentType?.startsWith('image/') ? 'image' : 'file',
+            url: att.url,
+            mediaType: att.contentType,
+            name: att.name
+          })
+        }
       }
 
-      // Normalize attachments to parts if needed
-      const normalizedParts = [
-        ...parts,
-        ...attachments.map((a: any) => ({
-          type: a.contentType?.startsWith('image/') ? 'image' : 'file',
-          url: a.url,
-          mediaType: a.contentType,
-          name: a.name
-        }))
-      ]
+      // If no candidate parts found, and we have simple content, create a text part
+      if (candidateParts.length === 0) {
+        const text = typeof message.content === 'string' ? message.content : (message.text || '')
+        if (text) {
+          candidateParts.push({ type: 'text', text })
+        }
+      }
 
       const processedParts = await Promise.all(
-        normalizedParts.map(async (part: any) => {
-          // Handle parts that have a URL or pathname (files/images)
-          if ((part.type === 'file' || part.type === 'image') && (part.url || part.pathname)) {
+        candidateParts.map(async (part: any) => {
+          if (part.type === 'text') return part
+
+          // Only process parts with URLs that haven't been downloaded yet
+          if ((part.url || part.pathname) && !part.image && !part.data) {
             try {
-              const mimeType = part.mediaType || 'application/octet-stream'
+              const mimeType = part.mediaType || part.mimeType || 'application/octet-stream'
               let buffer: Uint8Array
 
-              // If pathname is missing but it's a hub URL, infer it
+              // Resolve pathname from hub URLs if missing
               if (!part.pathname && part.url?.includes('/_hub/blob/')) {
                 part.pathname = part.url.split('/_hub/blob/')[1]?.split('?')[0]
               }
 
               if (part.pathname) {
-                console.log(`[AI] Fetching from hub blob: ${part.pathname}`)
                 const blobEntry = await blob.get(part.pathname)
-                if (!blobEntry) throw new Error(`Blob not found: ${part.pathname}`)
-                const arrayBuffer = await blobEntry.arrayBuffer()
-                buffer = new Uint8Array(arrayBuffer)
+                if (blobEntry) {
+                   const arrayBuffer = await blobEntry.arrayBuffer()
+                   buffer = new Uint8Array(arrayBuffer)
+                } else {
+                   throw new Error(`Blob not found: ${part.pathname}`)
+                }
               } 
               else {
                 const absoluteUrl = part.url.startsWith('/') ? `${origin}${part.url}` : part.url
-                console.log(`[AI] Fetching from URL: ${absoluteUrl}`)
                 buffer = await fetchFileAsBuffer(absoluteUrl)
               }
 
-              console.log(`[AI] Successfully processed ${part.type} (${buffer.byteLength} bytes)`)
-
+              // Return proper content part based on MIME type
               if (mimeType.startsWith('image/')) {
-                return {
-                  type: 'image',
-                  image: buffer,
-                  mimeType
-                }
+                return { type: 'image', image: buffer, mimeType }
               }
-
-              return {
-                type: 'file',
-                data: buffer,
-                mimeType
-              }
+              return { type: 'file', data: buffer, mimeType }
             }
             catch (error) {
-              console.error(`[AI] Failed to process ${part.type}:`, (error as Error).message)
-              return part
+              console.error(`[AI] Error downloading part (${part.type}):`, (error as Error).message)
+              // We return the raw part with URL as fallback, 
+              // but the AI SDK might not know what to do with it unless we convert to attachment later
+              return part 
             }
           }
           return part
         })
       )
 
+      console.log(`[AI] Message processed: role=${message.role}, parts=${processedParts.length}`)
+      
       return {
         ...message,
         parts: processedParts
@@ -217,13 +223,37 @@ export default defineEventHandler(async (event) => {
     await db.update(schema.chats).set({ title }).where(eq(schema.chats.id, id as string))
   }
 
-  const lastMessage = messages[messages.length - 1]
-  if (lastMessage?.role === 'user' && messages.length > 1) {
-    await db.insert(schema.messages).values({
-      chatId: id as string,
-      role: 'user',
-      parts: lastMessage.parts
-    }).onConflictDoNothing()
+  const lastMessage = messages[messages.length - 1] as any
+  if (lastMessage?.role === 'user') {
+    // Normalize parts if they are missing but attachments exist
+    // This ensures files are persisted to the database and can be rendered on reload
+    if (!lastMessage.parts || lastMessage.parts.length === 0) {
+      const attachments = lastMessage.experimental_attachments || lastMessage.files || []
+      const text = lastMessage.content || lastMessage.text || lastMessage.message || ''
+      
+      if (attachments.length > 0) {
+        lastMessage.parts = attachments.map((a: any) => ({
+          type: a.contentType?.startsWith('image/') ? 'image' : 'file',
+          url: a.url,
+          mediaType: a.contentType || a.mediaType,
+          name: a.name
+        }))
+        
+        if (text) {
+          lastMessage.parts.unshift({ type: 'text', text })
+        }
+      } else if (text) {
+         lastMessage.parts = [{ type: 'text', text }]
+      }
+    }
+
+    if (messages.length > 1) {
+      await db.insert(schema.messages).values({
+        chatId: id as string,
+        role: 'user',
+        parts: lastMessage.parts
+      }).onConflictDoNothing()
+    }
   }
 
   const supabase = useSupabase()
@@ -266,8 +296,10 @@ export default defineEventHandler(async (event) => {
 - ABSOLUTELY NO MARKDOWN HEADINGS. Use **bold text** for section labels.
 - Start all responses with content, never with a heading.
 
-**WEB SEARCH:**
-- Use ONLY when explicitly asked about recent events.
+**WEB SEARCH & CONTENT FETCHING:**
+- Use **search_web** ONLY when explicitly asked about recent events or when you need to find information you don't have.
+- Use **fetch_web_content** when a user shares a specific website URL (not YouTube) and you need to read its content to answer.
+- Use **fetch_youtube_transcript** when a user shares a YouTube link. THIS IS THE ONLY WAY YOU CAN "SEE" WHAT IS IN THE VIDEO.
 
 **RESPONSE QUALITY:**
 - Be EXTRA CONCISE. Do not explain your calculations unless specifically asked.
@@ -286,7 +318,9 @@ export default defineEventHandler(async (event) => {
           sync_firestore: syncFirestoreToSupabaseTool,
           query_database_app: queryAppDatabaseTool,
           save_user_memory: saveUserMemoryTool,
-          search_user_memory: searchUserMemoryTool
+          search_user_memory: searchUserMemoryTool,
+          fetch_web_content: fetchWebContentTool,
+          fetch_youtube_transcript: fetchYoutubeTranscriptTool
         },
         providerOptions: {
           anthropic: {

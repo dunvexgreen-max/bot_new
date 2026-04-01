@@ -18,7 +18,8 @@ export default defineNuxtConfig({
     google: {
       apiKey: process.env.GOOGLE_API_KEY
     },
-    zaloBotToken: process.env.ZALO_BOT_TOKEN
+    zaloBotToken: process.env.ZALO_BOT_TOKEN,
+    tavilyApiKey: process.env.TAVILY_API_KEY
   },
 
   devtools: {

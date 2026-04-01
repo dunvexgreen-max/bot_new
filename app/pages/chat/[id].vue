@@ -79,16 +79,23 @@ async function handleSubmit(e: Event) {
       parts.push(...uploadedFiles.value)
     }
 
+    const attachments = uploadedFiles.value.map(f => ({
+      name: f.name,
+      contentType: f.mediaType,
+      url: f.url
+    }))
+
     chat.sendMessage({
       role: 'user',
       text: textToSubmit,
-      files: uploadedFiles.value
+      experimental_attachments: attachments,
+      parts
     } as any)
     
     // Đợi 1 tick nhỏ rồi mới xóa để tránh IME bị giật
     await nextTick()
     input.value = ''
-    clearFiles()
+    setTimeout(() => clearFiles(), 100) // Trễ thêm 1 chút để UI kịp cập nhật
   }
 }
 

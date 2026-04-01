@@ -19,10 +19,31 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 500, statusMessage: 'Failed to create chat' })
   }
 
+  const lastMessage = message as any
+  if (!lastMessage.parts || lastMessage.parts.length === 0) {
+    const attachments = lastMessage.experimental_attachments || lastMessage.files || []
+    const text = lastMessage.content || lastMessage.text || lastMessage.message || ''
+    
+    if (attachments.length > 0) {
+      lastMessage.parts = attachments.map((a: any) => ({
+        type: a.contentType?.startsWith('image/') ? 'image' : 'file',
+        url: a.url,
+        mediaType: a.contentType || a.mediaType,
+        name: a.name
+      }))
+      
+      if (text) {
+        lastMessage.parts.unshift({ type: 'text', text })
+      }
+    } else if (text) {
+       lastMessage.parts = [{ type: 'text', text }]
+    }
+  }
+
   await db.insert(schema.messages).values({
     chatId: chat.id,
     role: 'user',
-    parts: message.parts
+    parts: lastMessage.parts
   })
 
   return chat

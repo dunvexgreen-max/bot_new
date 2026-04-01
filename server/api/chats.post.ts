@@ -2,6 +2,23 @@ import type { UIMessage } from 'ai'
 import { db, schema } from 'hub:db'
 import { z } from 'zod'
 
+interface MessagePart {
+  type: string
+  text?: string
+  url?: string
+  mediaType?: string
+  name?: string
+}
+
+interface ExtendedUIMessage extends Omit<UIMessage, 'parts'> {
+  parts?: MessagePart[]
+  files?: unknown[]
+  experimental_attachments?: unknown[]
+  content?: string
+  text?: string
+  message?: string
+}
+
 export default defineEventHandler(async (event) => {
   const session = await getUserSession(event)
   const { id, message } = await readValidatedBody(event, z.object({
@@ -19,25 +36,18 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 500, statusMessage: 'Failed to create chat' })
   }
 
-  const lastMessage = message as UIMessage & {
-    parts?: any[]
-    files?: any[]
-    experimental_attachments?: any[]
-    content?: string
-    text?: string
-    message?: string
-  }
+  const lastMessage = message as ExtendedUIMessage
   if (!lastMessage.parts || lastMessage.parts.length === 0) {
-    const attachments = lastMessage.experimental_attachments || lastMessage.files || []
+    const attachments = (lastMessage.experimental_attachments || lastMessage.files || []) as { url: string, contentType?: string, mediaType?: string, name: string }[]
     const text = lastMessage.content || lastMessage.text || lastMessage.message || ''
 
     if (attachments.length > 0) {
-      lastMessage.parts = attachments.map((a: { url: string, contentType?: string, mediaType?: string, name: string }) => ({
+      lastMessage.parts = attachments.map(a => ({
         type: (a.contentType?.startsWith('image/') ? 'image' : 'file') as 'image' | 'file',
         url: a.url,
         mediaType: a.contentType || a.mediaType,
         name: a.name
-      })) as any[]
+      }))
 
       if (text) {
         lastMessage.parts.unshift({ type: 'text', text })

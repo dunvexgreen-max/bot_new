@@ -32,20 +32,24 @@ export const saveDebtTool = tool({
     description: z.string().optional().describe('Description of the debt.')
   }),
   execute: async ({ user_id_platform, customer_name, amount, due_date, description }) => {
-    const supabase = useSupabase()
-    const { data, error } = await supabase
-      .from('debts')
-      .upsert({
-        user_id_platform,
-        customer_name,
-        amount,
-        due_date: due_date || null,
-        description: description || ''
-      }, { onConflict: 'user_id_platform' })
-      .select()
+    try {
+      const supabase = useSupabase()
+      const { data, error } = await supabase
+        .from('debts')
+        .upsert({
+          user_id_platform,
+          customer_name,
+          amount,
+          due_date: due_date || null,
+          description: description || ''
+        }, { onConflict: 'user_id_platform' })
+        .select()
 
-    if (error) return { error: error.message }
-    return { success: true, data }
+      if (error) return { error: error.message }
+      return { success: true, data }
+    } catch (e: unknown) {
+      return { error: e instanceof Error ? e.message : String(e) }
+    }
   }
 })
 
@@ -54,7 +58,7 @@ export const saveKnowledgeTool = tool({
   inputSchema: z.object({
     category: z.enum(['tax', 'product', 'general']).default('general').describe('The category of the knowledge.'),
     content: z.string().describe('The actual content/knowledge to store.'),
-    metadata: z.record(z.string(), z.any()).optional().describe('Optional metadata (e.g., source, tags).')
+    metadata: z.record(z.string(), z.unknown()).optional().describe('Optional metadata (e.g., source, tags).')
   }),
   execute: async ({ category, content, metadata }) => {
     const supabase = useSupabase()
@@ -102,12 +106,11 @@ export const updateKnowledgeTool = tool({
     id: z.string().describe('The ID of the knowledge record to update (obtained from search_knowledge).'),
     category: z.enum(['tax', 'product', 'general']).optional().describe('Optional new category.'),
     content: z.string().optional().describe('The new updated content (e.g., new price, updated description).'),
-    metadata: z.record(z.string(), z.any()).optional().describe('Optional updated metadata.')
+    metadata: z.record(z.string(), z.unknown()).optional().describe('Optional updated metadata.')
   }),
   execute: async ({ id, category, content, metadata }) => {
     const supabase = useSupabase()
-
-    const updateData: any = {}
+    const updateData: Record<string, unknown> = {}
     if (category) updateData.category = category
     if (content) updateData.content = content
     if (metadata) updateData.metadata = metadata
@@ -176,7 +179,6 @@ export const syncFirestoreToSupabaseTool = tool({
       const admin = await getFirebaseAdmin()
       const db = admin.firestore()
 
-      // Bỏ hẳn orderBy để tránh việc Firestore tự động bỏ qua các bản ghi không có trường createdAt
       const snapshot = await db.collection(collectionName).limit(limit).get()
 
       if (snapshot.empty) return { message: 'Thành công truy cập, nhưng hoàn toàn KHÔNG tìm thấy dữ liệu bất kỳ nào trong collection: ' + collectionName }
@@ -185,9 +187,8 @@ export const syncFirestoreToSupabaseTool = tool({
         const rawData = doc.data()
         return {
           id: doc.id,
-          // Rút trích tự động nhãn email của chủ để làm RLS khóa bảo mật
           user_email: rawData.ownerEmail || rawData.email || rawData.createdByEmail || rawData.userEmail || 'unknown',
-          data: rawData, // Đóng hộp nguyên trạng mọi loại trường linh tinh vào 1 cột cục bộ JSONB
+          data: rawData,
           sync_at: new Date().toISOString()
         }
       })
@@ -200,9 +201,10 @@ export const syncFirestoreToSupabaseTool = tool({
 
       if (error) return { error: `Cơ sở dữ liệu Supabase từ chối nhận vì lỗi cấu trúc bảng '${targetTable}'. Chi tiết lỗi: ${error.message}` }
       return { success: true, count: records.length, synced: data }
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Lỗi sập Tool Sync:', e)
-      return { error: 'Cực kỳ nghiêm trọng: Tool đã bị SẬP do lỗi kỹ thuật mạng hoặc code. Chi tiết máy chủ báo lại: ' + e.message }
+      const errorMessage = e instanceof Error ? e.message : String(e)
+      return { error: 'Cực kỳ nghiêm trọng: Tool đã bị SẬP do lỗi kỹ thuật mạng hoặc code. Chi tiết máy chủ báo lại: ' + errorMessage }
     }
   }
 })
@@ -219,10 +221,8 @@ export const queryAppDatabaseTool = tool({
     try {
       const supabase = useSupabase()
 
-      // Lấy thêm số lượng và tắt giới hạn quá nhỏ để tránh tính toán sai
       let query = supabase.from(tableName).select('*').limit(limit)
 
-      // Nếu không phải là Super Admin, mới tiền hành gài chốt khóa chặn người lạ
       if (user_email !== 'ALL_ADMIN') {
         query = query.eq(email_column, user_email)
       }
@@ -232,10 +232,10 @@ export const queryAppDatabaseTool = tool({
       if (error) return { error: `Dữ liệu bị lỗi khi chọc vào bảng ${tableName}: ${error.message}` }
       if (!data || data.length === 0) return { message: `KHÔNG có dữ liệu nào trong bảng [${tableName}].` }
 
-      // Nếu dữ liệu quá lớn, báo cáo tổng thay vì trả về toàn bộ chi tiết (giảm Token)
       return { success: true, count: data.length, records_thay_duoc: data }
-    } catch (e: any) {
-      return { error: 'Server sập khi truy vấn dữ liệu app: ' + e.message }
+    } catch (e: unknown) {
+      const errorMessage = e instanceof Error ? e.message : String(e)
+      return { error: 'Server sập khi truy vấn dữ liệu app: ' + errorMessage }
     }
   }
 })
@@ -255,7 +255,10 @@ export const saveUserMemoryTool = tool({
         created_at: new Date().toISOString()
       })
       return { success: true, message: 'Đã khắc sâu vào bộ não dài hạn, sẽ không bao giờ quên người này.' }
-    } catch (e: any) { return { error: e.message } }
+    } catch (e: unknown) {
+      const errorMessage = e instanceof Error ? e.message : String(e)
+      return { error: errorMessage }
+    }
   }
 })
 
@@ -270,8 +273,11 @@ export const searchUserMemoryTool = tool({
       const { data, error } = await supabase.from('user_memories').select('*').eq('user_email', user_email).limit(10).order('created_at', { ascending: false })
       if (error) return { error: error.message }
       if (!data || data.length === 0) return { message: 'Chưa học được thói quen gì từ lúc Zalo bot tiếp xúc khách có email này.' }
-      return { success: true, memories: data }
-    } catch (e: any) { return { error: e.message } }
+      return { success: true, results: data }
+    } catch (e: unknown) {
+      const errorMessage = e instanceof Error ? e.message : String(e)
+      return { error: errorMessage }
+    }
   }
 })
 
@@ -284,9 +290,8 @@ export const fetchWebContentTool = tool({
     const config = useRuntimeConfig()
     const apiKey = config.tavilyApiKey || process.env.TAVILY_API_KEY
 
-    // Stage 1: Try Tavily Extract (Best quality text)
     try {
-      const response: any = await $fetch('https://api.tavily.com/extract', {
+      const response = await $fetch<{ results?: Array<{ url: string, title: string, raw_content?: string, text?: string }> }>('https://api.tavily.com/extract', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: {
@@ -306,13 +311,12 @@ export const fetchWebContentTool = tool({
           content: result.raw_content || result.text
         }
       }
-    } catch (e: any) {
-      console.warn(`[AI-Tool] Tavily Extract failed for ${url}:`, e.message)
+    } catch (e: unknown) {
+      console.warn(`[AI-Tool] Tavily Extract failed for ${url}:`, e instanceof Error ? e.message : String(e))
     }
 
-    // Stage 2: Fallback to Tavily Search (Better at finding indexed/cached content for protected sites)
     try {
-      const searchResponse: any = await $fetch('https://api.tavily.com/search', {
+      const searchResponse = await $fetch<{ answer?: string, results?: Array<{ url: string, title: string, content: string }> }>('https://api.tavily.com/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: {
@@ -326,7 +330,7 @@ export const fetchWebContentTool = tool({
       })
 
       if (searchResponse.answer || (searchResponse.results && searchResponse.results.length > 0)) {
-        const content = searchResponse.answer || searchResponse.results[0].content
+        const content = searchResponse.answer || searchResponse.results![0].content
         return {
           success: true,
           source: 'tavily-search',
@@ -335,16 +339,15 @@ export const fetchWebContentTool = tool({
           content: content + '\n\n(Note: This was retrieved via search fallback as direct extraction was blocked.)'
         }
       }
-    } catch (e: any) {
-      console.warn(`[AI-Tool] Tavily Search fallback failed for ${url}:`, e.message)
+    } catch (e: unknown) {
+      console.warn(`[AI-Tool] Tavily Search fallback failed for ${url}:`, e instanceof Error ? e.message : String(e))
     }
 
-    // Stage 3: Fallback to Jina Reader (Robust alternative scraping pipeline)
     try {
       const jinaResponse = await $fetch(`https://r.jina.ai/${url}`, {
         headers: { Accept: 'application/json' },
         timeout: 15000
-      }) as any
+      }) as { data?: { url: string, title: string, content: string } }
 
       if (jinaResponse && jinaResponse.data) {
         return {
@@ -355,8 +358,8 @@ export const fetchWebContentTool = tool({
           content: jinaResponse.data.content
         }
       }
-    } catch (e: any) {
-      console.error(`[AI-Tool] All extraction methods failed for ${url}:`, e.message)
+    } catch (e: unknown) {
+      console.error(`[AI-Tool] All extraction methods failed for ${url}:`, e instanceof Error ? e.message : String(e))
     }
 
     return {
@@ -383,7 +386,6 @@ function extractVideoId(url: string): string {
 async function fetchYoutubeTranscript(url: string) {
   const videoId = extractVideoId(url)
 
-  // Try InnerTube API (Android client)
   try {
     const response = await fetch(YT_API_URL, {
       method: 'POST',
@@ -392,7 +394,7 @@ async function fetchYoutubeTranscript(url: string) {
     })
 
     if (response.ok) {
-      const data: any = await response.json()
+      const data = await response.json() as { captions?: { playerCaptionsTracklistRenderer?: { captionTracks?: { baseUrl: string }[] } } }
       const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks
       if (Array.isArray(tracks) && tracks.length > 0) {
         return await fetchAndParseTranscript(tracks[0].baseUrl)
@@ -402,7 +404,6 @@ async function fetchYoutubeTranscript(url: string) {
     console.error('InnerTube fetching failed:', e)
   }
 
-  // Fallback to Watch Page parsing
   try {
     const pageText = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
       headers: { 'User-Agent': YT_USER_AGENT }
@@ -410,7 +411,7 @@ async function fetchYoutubeTranscript(url: string) {
 
     const jsonMatch = pageText.match(/var ytInitialPlayerResponse = (\{.+?\});/)
     if (jsonMatch) {
-      const playerResponse = JSON.parse(jsonMatch[1])
+      const playerResponse = JSON.parse(jsonMatch[1]) as { captions?: { playerCaptionsTracklistRenderer?: { captionTracks?: { baseUrl: string }[] } } }
       const tracks = playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks
       if (Array.isArray(tracks) && tracks.length > 0) {
         const baseUrl = tracks[0].baseUrl
@@ -436,7 +437,7 @@ async function fetchAndParseTranscript(baseUrl: string) {
   while ((match = pRegex.exec(xml)) !== null) {
     const start = parseInt(match[1], 10)
     const duration = parseInt(match[2], 10)
-    let text = match[3]
+    const text = match[3]
 
     // Simple entity decode and tag removal
     let cleanText = (text || '')

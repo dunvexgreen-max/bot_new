@@ -53,7 +53,7 @@ export default defineEventHandler(async (_event) => {
       }
     })
   } catch (err: unknown) {
-    console.error('Lỗi khi gửi tin nhắn Zalo:', (err as any).data || (err as Error).message)
+    console.error('Lỗi khi gửi tin nhắn Zalo:', (err as { data?: { message?: string } }).data || (err as Error).message)
 
     // Fallback: Nếu là Zalo OA API truyền thống
     try {
@@ -65,7 +65,7 @@ export default defineEventHandler(async (_event) => {
           message: { text: responseText }
         }
       })
-    } catch (_oaErr) {
+    } catch {
       console.error('Cả 2 cách gửi tin nhắn Zalo đều thất bại.')
     }
   }

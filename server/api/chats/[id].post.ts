@@ -1,5 +1,4 @@
 import type { H3Event } from 'h3'
-import { blob } from 'hub:blob'
 import type { UIMessage } from 'ai'
 import { convertToModelMessages, createUIMessageStream, createUIMessageStreamResponse, generateText, smoothStream, stepCountIs, streamText } from 'ai'
 import { db, schema } from 'hub:db'
@@ -43,6 +42,26 @@ async function fetchFileAsBuffer(url: string): Promise<Uint8Array> {
   }
 }
 
+interface MessagePart {
+  type: string
+  text?: string
+  url?: string
+  mediaType?: string
+  name?: string
+  image?: Uint8Array | ArrayBuffer
+  data?: unknown
+  reasoning?: string
+}
+
+interface ExtendedUIMessage extends Omit<UIMessage, 'parts'> {
+  parts?: MessagePart[]
+  files?: unknown[]
+  experimental_attachments?: unknown[]
+  content?: string
+  text?: string
+  message?: string
+}
+
 defineRouteMeta({
   openAPI: {
     description: 'Chat with AI.',
@@ -59,18 +78,18 @@ async function processMessagesForAI(event: H3Event, messages: UIMessage[]) {
   const { origin } = getRequestURL(event)
 
   return await Promise.all(
-    messages.map(async (message: any) => {
-      const originalParts = message.parts || []
-      const experimentalAttachments = (message as any).experimental_attachments || (message as any).files || []
+    (messages as unknown as ExtendedUIMessage[]).map(async (message) => {
+      const originalParts = (message.parts || []) as MessagePart[]
+      const experimentalAttachments = (message.experimental_attachments || message.files || []) as { url: string, contentType?: string, mediaType?: string, name: string }[]
 
       // Combine parts and attachments into a unique list of candidate parts
       const candidateParts = [...originalParts]
 
       // Add experimental attachments that aren't already represented in parts
       for (const att of experimentalAttachments) {
-        if (!candidateParts.some((p: any) => p.url === att.url)) {
+        if (!candidateParts.some(p => p.url === att.url)) {
           candidateParts.push({
-            type: att.contentType?.startsWith('image/') ? 'image' : 'file',
+            type: (att.contentType?.startsWith('image/') ? 'image' : 'file') as 'image' | 'file',
             url: att.url,
             mediaType: att.contentType,
             name: att.name
@@ -87,7 +106,7 @@ async function processMessagesForAI(event: H3Event, messages: UIMessage[]) {
       }
 
       const processedParts = await Promise.all(
-        candidateParts.map(async (part: any) => {
+        candidateParts.map(async (part) => {
           if (part.type === 'text') return part
           if (!part.url) return part
 
@@ -132,15 +151,14 @@ export default defineEventHandler(async (event) => {
   const { model, messages } = body
   console.log(`[AI-DEBUG] Model: ${model}, Messages Count: ${messages.length}`)
   if (messages && messages.length > 0) {
-    const lastMsg = messages[messages.length - 1]
+    const lastMsg = messages[messages.length - 1] as ExtendedUIMessage
     if (lastMsg) {
       console.log(`[AI-DEBUG] Last message keys: ${Object.keys(lastMsg).join(', ')}`)
-      if (lastMsg.parts) {
-        console.log(`[AI-DEBUG] Last message parts count: ${lastMsg.parts.length}`)
-        lastMsg.parts.forEach((p: any, i: number) => {
-          console.log(`[AI-DEBUG] Part ${i}: type=${p.type}, ${p.text ? 'text="' + p.text.substring(0, 20) + '..." ' : ''}${p.url ? 'url=' + p.url : ''}`)
-        })
-      }
+      const parts = lastMsg.parts || []
+      console.log(`[AI-DEBUG] Last message parts count: ${parts.length}`)
+      parts.forEach((p: MessagePart, i: number) => {
+        console.log(`[AI-DEBUG] Part ${i}: type=${p.type}, ${p.text ? 'text="' + p.text.substring(0, 20) + '..." ' : ''}${p.url ? 'url=' + p.url : ''}`)
+      })
     }
   }
 
@@ -176,7 +194,7 @@ export default defineEventHandler(async (event) => {
     await db.update(schema.chats).set({ title }).where(eq(schema.chats.id, id as string))
   }
 
-  const lastMessage = messages[messages.length - 1] as any
+  const lastMessage = messages[messages.length - 1] as ExtendedUIMessage
   if (lastMessage?.role === 'user') {
     // Normalize parts if they are missing but attachments exist
     // This ensures files are persisted to the database and can be rendered on reload
@@ -185,7 +203,7 @@ export default defineEventHandler(async (event) => {
       const text = lastMessage.content || lastMessage.text || lastMessage.message || ''
 
       if (attachments.length > 0) {
-        lastMessage.parts = attachments.map((a: any) => ({
+        lastMessage.parts = (attachments as { url: string, contentType?: string, mediaType?: string, name: string }[]).map(a => ({
           type: a.contentType?.startsWith('image/') ? 'image' : 'file',
           url: a.url,
           mediaType: a.contentType || a.mediaType,
@@ -204,7 +222,7 @@ export default defineEventHandler(async (event) => {
       await db.insert(schema.messages).values({
         chatId: id as string,
         role: 'user',
-        parts: lastMessage.parts as any[]
+        parts: lastMessage.parts as unknown as Record<string, unknown>[]
       }).onConflictDoNothing()
     }
   }
@@ -258,7 +276,7 @@ export default defineEventHandler(async (event) => {
 - Be EXTRA CONCISE. Do not explain your calculations unless specifically asked.
 - NEVER invent numbers. Be absolutely precise when summing up orders, debts or any values from the database. Calculate carefully before returning the final result.
 - Do not repeat previous answers or apologize excessively. Get straight to the point.`,
-        messages: await convertToModelMessages(processedMessages),
+        messages: await convertToModelMessages(processedMessages as unknown as UIMessage[]),
         tools: {
           chart: chartTool,
           weather: weatherTool,
@@ -308,13 +326,14 @@ export default defineEventHandler(async (event) => {
       writer.merge(result.toUIMessageStream({
         sendSources: true,
         sendReasoning: true
-      }))
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any)
     },
     onFinish: async ({ messages }) => {
       await db.insert(schema.messages).values(messages.map(message => ({
         chatId: chat.id,
         role: message.role as 'user' | 'assistant',
-        parts: message.parts
+        parts: message.parts as unknown as Record<string, unknown>[]
       })))
     }
   })

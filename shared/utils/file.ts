@@ -9,18 +9,23 @@ export interface FileWithStatus {
 }
 
 export const FILE_UPLOAD_CONFIG = {
-  maxSize: '8MB',
-  types: ['image', 'application/pdf', 'text/csv'],
-  acceptPattern: 'image/*,application/pdf,.csv,text/csv'
+  maxSize: '50MB',
+  types: ['image', 'pdf', 'text/csv', 'application/pdf', 'application/vnd.ms-excel'],
+  acceptPattern: '.pdf,application/pdf,image/*,.csv,text/csv,application/vnd.ms-excel'
 } as const
 
 export function getFileIcon(mimeType: string, fileName?: string): string {
-  if (mimeType.startsWith('image/')) return 'i-lucide-image'
-  if (mimeType === 'application/pdf') return 'i-lucide-file-text'
-  if (mimeType === 'text/csv' || fileName?.endsWith('.csv')) return 'i-lucide-file-spreadsheet'
+  const type = mimeType.toLowerCase()
+  const name = fileName?.toLowerCase() || ''
+  
+  if (type.startsWith('image/')) return 'i-lucide-image'
+  if (type.includes('pdf') || name.endsWith('.pdf')) return 'i-lucide-file-text'
+  if (type.includes('csv') || type.includes('excel') || name.endsWith('.csv') || name.endsWith('.xlsx')) return 'i-lucide-file-spreadsheet'
+  
   return 'i-lucide-file'
 }
 
 export function removeRandomSuffix(filename: string): string {
   return filename.replace(/^(.+)-[a-zA-Z0-9]+(\.[^.]+)$/, '$1$2')
 }
+

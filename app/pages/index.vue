@@ -33,7 +33,11 @@ async function createChat(prompt: string) {
   input.value = prompt
   loading.value = true
 
-  const parts: Array<{ type: string, text?: string, mediaType?: string, url?: string }> = [{ type: 'text', text: prompt }]
+  const parts: Array<{ type: string, text?: string, mediaType?: string, url?: string }> = []
+
+  if (prompt.trim()) {
+    parts.push({ type: 'text', text: prompt.trim() })
+  }
 
   if (uploadedFiles.value.length > 0) {
     parts.push(...uploadedFiles.value)
@@ -56,8 +60,10 @@ async function createChat(prompt: string) {
 }
 
 async function onSubmit() {
-  await createChat(input.value)
-  clearFiles()
+  if (input.value.trim() || uploadedFiles.value.length > 0) {
+    await createChat(input.value)
+    clearFiles()
+  }
 }
 
 const quickChats = [

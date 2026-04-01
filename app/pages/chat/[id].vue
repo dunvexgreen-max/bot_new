@@ -65,19 +65,29 @@ async function handleSubmit(e: Event) {
   if (now - lastSubmitTime < 200) return
   lastSubmitTime = now
 
-  if (input.value.trim() && !isUploading.value) {
+  if ((input.value.trim() || uploadedFiles.value.length > 0) && !isUploading.value) {
     const textToSubmit = input.value.trim()
     
+    // Construct parts array for multimodal message
+    const parts: any[] = []
+    
+    if (textToSubmit) {
+      parts.push({ type: 'text', text: textToSubmit })
+    }
+    
+    if (uploadedFiles.value.length > 0) {
+      parts.push(...uploadedFiles.value)
+    }
+
     chat.sendMessage({
+      role: 'user',
       text: textToSubmit,
-      files: uploadedFiles.value.length > 0 ? uploadedFiles.value : undefined
-    })
+      files: uploadedFiles.value
+    } as any)
     
     // Đợi 1 tick nhỏ rồi mới xóa để tránh IME bị giật
-    setTimeout(() => {
-      input.value = ''
-    }, 10)
-    
+    await nextTick()
+    input.value = ''
     clearFiles()
   }
 }

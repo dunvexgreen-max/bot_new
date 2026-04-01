@@ -1,3 +1,4 @@
+import { blob } from 'hub:blob'
 import type { UIMessage } from 'ai'
 import { convertToModelMessages, createUIMessageStream, createUIMessageStreamResponse, generateText, smoothStream, stepCountIs, streamText } from 'ai'
 import { db, schema } from 'hub:db'
@@ -59,45 +60,86 @@ defineRouteMeta({
 })
 
 /**
- * Process file URLs in messages to make them compatible with Gemini API
+ * Process file URLs in messages to make them compatible with AI models.
+ * Download files/images on server side as standard AI SDK models expect data or public URLs.
  */
-async function processMessagesForAI(messages: UIMessage[]) {
+async function processMessagesForAI(event: any, messages: UIMessage[]) {
+  // Get request origin to handle relative URLs
+  const { origin } = getRequestURL(event)
+
+  console.log(`[AI] Processing ${messages.length} messages. Last message structure:`, JSON.stringify({
+    role: messages[messages.length - 1]?.role,
+    hasParts: !!messages[messages.length - 1]?.parts,
+    partsCount: messages[messages.length - 1]?.parts?.length,
+    hasAttachments: !!(messages[messages.length - 1] as any)?.experimental_attachments,
+    attachmentsCount: (messages[messages.length - 1] as any)?.experimental_attachments?.length
+  }, null, 2))
+
   const processedMessages = await Promise.all(
-    messages.map(async (message) => {
-      if (!message.parts) return message
+    messages.map(async (message: any) => {
+      // AI SDK might use 'parts' OR 'experimental_attachments'
+      const parts = message.parts || []
+      const attachments = message.experimental_attachments || []
+      
+      if (parts.length === 0 && attachments.length === 0) {
+        return message
+      }
+
+      // Normalize attachments to parts if needed
+      const normalizedParts = [
+        ...parts,
+        ...attachments.map((a: any) => ({
+          type: a.contentType?.startsWith('image/') ? 'image' : 'file',
+          url: a.url,
+          mediaType: a.contentType,
+          name: a.name
+        }))
+      ]
 
       const processedParts = await Promise.all(
-        message.parts.map(async (part: any) => {
-          // Handle file/image parts with URLs
-          if ((part.type === 'file' || part.type === 'image') && part.url) {
+        normalizedParts.map(async (part: any) => {
+          // Handle parts that have a URL or pathname (files/images)
+          if ((part.type === 'file' || part.type === 'image') && (part.url || part.pathname)) {
             try {
               const mimeType = part.mediaType || 'application/octet-stream'
+              let buffer: Uint8Array
 
-              // For images, can use URL directly
+              // If pathname is missing but it's a hub URL, infer it
+              if (!part.pathname && part.url?.includes('/_hub/blob/')) {
+                part.pathname = part.url.split('/_hub/blob/')[1]?.split('?')[0]
+              }
+
+              if (part.pathname) {
+                console.log(`[AI] Fetching from hub blob: ${part.pathname}`)
+                const blobEntry = await blob.get(part.pathname)
+                if (!blobEntry) throw new Error(`Blob not found: ${part.pathname}`)
+                const arrayBuffer = await blobEntry.arrayBuffer()
+                buffer = new Uint8Array(arrayBuffer)
+              } 
+              else {
+                const absoluteUrl = part.url.startsWith('/') ? `${origin}${part.url}` : part.url
+                console.log(`[AI] Fetching from URL: ${absoluteUrl}`)
+                buffer = await fetchFileAsBuffer(absoluteUrl)
+              }
+
+              console.log(`[AI] Successfully processed ${part.type} (${buffer.byteLength} bytes)`)
+
               if (mimeType.startsWith('image/')) {
                 return {
-                  ...part,
                   type: 'image',
-                  mimeType,
-                  url: part.url
+                  image: buffer,
+                  mimeType
                 }
               }
 
-              // For non-image files (PDF, CSV, etc.), download and convert to base64
-              const buffer = await fetchFileAsBuffer(part.url)
-              const base64 = bufferToBase64(buffer)
-
               return {
-                ...part,
-                type: 'document',
-                mimeType,
-                base64,
-                data: buffer
+                type: 'file',
+                data: buffer,
+                mimeType
               }
             }
             catch (error) {
-              console.error('Failed to process file for Gemini:', error)
-              // Return original part if processing fails
+              console.error(`[AI] Failed to process ${part.type}:`, (error as Error).message)
               return part
             }
           }
@@ -122,12 +164,26 @@ export default defineEventHandler(async (event) => {
     id: z.string()
   }).parse)
 
-  const { model, messages } = await readValidatedBody(event, z.object({
+  const body = await readValidatedBody(event, z.object({
     model: z.string().refine(value => MODELS.some(m => m.value === value), {
       message: 'Invalid model'
     }),
     messages: z.array(z.custom<UIMessage>())
   }).parse)
+  const { model, messages } = body
+  console.log(`[AI-DEBUG] Model: ${model}, Messages Count: ${messages.length}`)
+  if (messages && messages.length > 0) {
+    const lastMsg = messages[messages.length - 1]
+    if (lastMsg) {
+      console.log(`[AI-DEBUG] Last message keys: ${Object.keys(lastMsg).join(', ')}`)
+      if (lastMsg.parts) {
+        console.log(`[AI-DEBUG] Last message parts count: ${lastMsg.parts.length}`)
+        lastMsg.parts.forEach((p: any, i: number) => {
+          console.log(`[AI-DEBUG] Part ${i}: type=${p.type}, ${p.text ? 'text="'+p.text.substring(0, 20)+'..." ' : ''}${p.url ? 'url='+p.url : ''}`)
+        })
+      }
+    }
+  }
 
   const chat = await db.query.chats.findFirst({
     where: () => and(
@@ -167,7 +223,7 @@ export default defineEventHandler(async (event) => {
       chatId: id as string,
       role: 'user',
       parts: lastMessage.parts
-    })
+    }).onConflictDoNothing()
   }
 
   const supabase = useSupabase()
@@ -179,7 +235,7 @@ export default defineEventHandler(async (event) => {
   const customPrompt = promptData?.value || 'You are a knowledgeable and helpful AI assistant.'
 
   // Process file URLs in messages to make them compatible with AI models
-  const processedMessages = await processMessagesForAI(messages)
+  const processedMessages = await processMessagesForAI(event, messages)
 
   const stream = createUIMessageStream({
     execute: async ({ writer }) => {
@@ -196,6 +252,9 @@ export default defineEventHandler(async (event) => {
 - BÃI BỎ HOÀN TOÀN quy tắc xin email! NGHIÊM CẤM đòi anh Thông cung cấp email đăng nhập.
 - Anh Thông có toàn quyền sinh sát tuyệt đối: Khi anh ra lệnh đồng bộ, hãy đồng bộ TẤT CẢ. Khi anh tra cứu (queryAppDatabaseTool), hãy âm thầm điền mật mã \`ALL_ADMIN\` vào trường \`user_email\` để xả trạm, đưa toàn bộ dữ liệu của tất cả người dùng và đối tác về cho anh báo cáo mà không bị cản lại.
 - Các quy tắc hỏi email vớ vẩn chỉ được dùng cho khách hàng vô danh trên Zalo ở các luồng xử lý khác. Ở đây, bạn là Thư ký báo cáo Thống Kê Tổng (Tổng quản lý).
+
+- NGHIÊM CẤM ĐOÁN MÒ NỘI DUNG TỆP: Bạn chỉ được phép trả lời dựa trên nội dung tệp nếu bạn thực sự "thấy" dữ liệu (binary/parts) của tệp đó. Nếu bạn chỉ thấy tên tệp mà không thấy dữ liệu bên trong, bạn phải báo ngay: "Dạ anh Thông, em thấy tệp [Tên file] nhưng chưa đọc được nội dung. Anh vui lòng đính kèm lại giúp em ạ."
+- Khi có tệp đính kèm, hãy ưu tiên bóc tách dữ liệu từ tệp trước khi tra cứu kiến thức cũ.
 
 **TRAINING & KNOWLEDGE:**
 - You can save new information provided by Thong (like tax laws, product info, or debt lists) using the **save_knowledge** and **save_debt** tools.

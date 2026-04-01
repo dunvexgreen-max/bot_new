@@ -55,14 +55,29 @@ const chat = new Chat({
   }
 })
 
+let lastSubmitTime = 0
+
 async function handleSubmit(e: Event) {
   e.preventDefault()
+  
+  // Chống dội (debounce) để fix lỗi bàn phím tiếng Việt (IME) Gõ Enter bị tách chữ
+  const now = Date.now()
+  if (now - lastSubmitTime < 200) return
+  lastSubmitTime = now
+
   if (input.value.trim() && !isUploading.value) {
+    const textToSubmit = input.value.trim()
+    
     chat.sendMessage({
-      text: input.value,
+      text: textToSubmit,
       files: uploadedFiles.value.length > 0 ? uploadedFiles.value : undefined
     })
-    input.value = ''
+    
+    // Đợi 1 tick nhỏ rồi mới xóa để tránh IME bị giật
+    setTimeout(() => {
+      input.value = ''
+    }, 10)
+    
     clearFiles()
   }
 }
@@ -111,10 +126,14 @@ onMounted(() => {
             class="lg:pt-(--ui-header-height) pb-4 sm:pb-6"
           >
             <template #indicator>
-              <div class="flex items-center gap-1.5">
-                <ChatIndicator />
-
-                <UChatShimmer text="Thinking..." class="text-sm" />
+              <div class="flex items-center justify-center gap-2 px-2">
+                <!-- Hiệu ứng ... nhấp nháy 3 chấm kiểu Zalo/Messenger -->
+                <div class="flex space-x-1 items-center h-4">
+                  <div class="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                  <div class="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                  <div class="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"></div>
+                </div>
+                <UChatShimmer text="Bot đang suy nghĩ và tra cứu..." class="text-sm text-gray-400 italic" />
               </div>
             </template>
 
@@ -162,6 +181,13 @@ onMounted(() => {
                   >
                     <ChatToolSources :sources="getSources(part)" />
                   </UChatTool>
+                  <UChatTool
+                    v-else
+                    :text="isToolStreaming(part) ? 'Đang truy xuất dữ liệu hệ thống...' : 'Đã đọc xong dữ liệu'"
+                    :suffix="getToolName(part)"
+                    :streaming="isToolStreaming(part)"
+                    chevron="leading"
+                  />
                 </template>
 
                 <template v-else-if="isTextUIPart(part)">

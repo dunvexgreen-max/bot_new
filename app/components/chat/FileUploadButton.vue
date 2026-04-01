@@ -1,25 +1,31 @@
 <script setup lang="ts">
 const { loggedIn } = useUserSession()
+const toast = useToast()
 
-defineProps<{
+const props = defineProps<{
   open: () => void
 }>()
+
+function handleFileUpload() {
+  if (!loggedIn.value) {
+    toast.add({
+      title: 'Login required',
+      description: 'You need to be logged in to upload files.',
+      icon: 'i-lucide-alert-circle',
+      color: 'error'
+    })
+    return
+  }
+  props.open()
+}
 </script>
 
 <template>
-  <UTooltip
-    :content="{
-      side: 'top'
-    }"
-    :text="!loggedIn ? 'You need to be logged in to upload files' : ''"
-  >
-    <UButton
-      icon="i-lucide-paperclip"
-      variant="ghost"
-      color="neutral"
-      size="sm"
-      :disabled="!loggedIn"
-      @click="open()"
-    />
-  </UTooltip>
+  <UButton
+    icon="i-lucide-paperclip"
+    variant="ghost"
+    color="neutral"
+    size="sm"
+    @click="handleFileUpload()"
+  />
 </template>

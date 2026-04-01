@@ -1,13 +1,27 @@
 <script setup lang="ts">
 import { LazyModalConfirm } from '#components'
+import { useClipboard } from '@vueuse/core'
 
 const route = useRoute()
 const toast = useToast()
 const overlay = useOverlay()
 const { loggedIn, openInPopup } = useUserSession()
 const { csrf, headerName } = useCsrf()
+const { copy: copyUrl } = useClipboard()
 
 const open = ref(false)
+
+function copyWebhook(platform: 'zalo' | 'facebook') {
+  const url = `${window.location.origin}/api/${platform}-webhook`
+  copyUrl(url)
+  toast.add({
+    title: 'Đã copy Link Webhook',
+    description: `Dán link này vào phần Cấu hình Webhook của ${platform === 'zalo' ? 'Zalo OA' : 'Facebook App'}`,
+    icon: 'i-lucide-check-circle',
+    color: 'success'
+  })
+  open.value = false
+}
 
 const deleteModal = overlay.create(LazyModalConfirm, {
   props: {
@@ -118,6 +132,36 @@ defineShortcuts({
             @click="open = false"
           />
 
+          <div class="flex flex-col gap-1 mt-2">
+            <UButton
+              v-bind="collapsed ? { icon: 'i-simple-icons-zalo' } : { label: 'Zalo Webhook' }"
+              icon="i-lucide-webhook"
+              variant="ghost"
+              color="neutral"
+              block
+              class="justify-start"
+              @click="copyWebhook('zalo')"
+            />
+            <UButton
+              v-bind="collapsed ? { icon: 'i-simple-icons-facebook' } : { label: 'Facebook Webhook' }"
+              icon="i-lucide-webhook"
+              variant="ghost"
+              color="neutral"
+              block
+              class="justify-start"
+              @click="copyWebhook('facebook')"
+            />
+            <UButton
+              v-bind="collapsed ? { icon: 'i-lucide-settings' } : { label: 'Cấu hình Bot' }"
+              icon="i-lucide-settings"
+              variant="ghost"
+              color="neutral"
+              block
+              class="justify-start"
+              @click="navigateTo('/settings')"
+            />
+          </div>
+
           <template v-if="collapsed">
             <UDashboardSearchButton collapsed />
           </template>
@@ -150,12 +194,12 @@ defineShortcuts({
         <UserMenu v-if="loggedIn" :collapsed="collapsed" />
         <UButton
           v-else
-          :label="collapsed ? '' : 'Login with GitHub'"
-          icon="i-simple-icons-github"
+          :label="collapsed ? '' : 'Login with Google'"
+          icon="i-simple-icons-google"
           color="neutral"
           variant="ghost"
           class="w-full"
-          @click="openInPopup('/auth/github')"
+          @click="navigateTo('/auth/google', { external: true })"
         />
       </template>
     </UDashboardSidebar>

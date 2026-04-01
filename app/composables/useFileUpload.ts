@@ -105,7 +105,7 @@ export function useFileUploadWithStatus(chatId: string) {
     files.value
       .filter(f => f.status === 'uploaded' && f.uploadedUrl)
       .map(f => ({
-        type: 'file' as const,
+        type: f.file.type.startsWith('image/') ? 'image' as const : 'file' as const,
         mediaType: f.file.type,
         url: f.uploadedUrl!
       }))

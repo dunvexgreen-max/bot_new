@@ -10,6 +10,17 @@ export default defineNuxtConfig({
     'nuxt-csurf'
   ],
 
+  runtimeConfig: {
+    supabase: {
+      url: process.env.SUPABASE_URL,
+      key: process.env.SUPABASE_KEY
+    },
+    google: {
+      apiKey: process.env.GOOGLE_API_KEY
+    },
+    zaloBotToken: process.env.ZALO_BOT_TOKEN
+  },
+
   devtools: {
     enabled: true
   },

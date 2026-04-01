@@ -1,0 +1,277 @@
+import { tool } from 'ai'
+import { z } from 'zod'
+import { readFileSync } from 'fs'
+import { join } from 'path'
+
+// Initialize Firebase Admin (lazy)
+let firebaseApp: any = null
+const getFirebaseAdmin = async () => {
+  const importedModule = await import('firebase-admin')
+  // Mở hộp ESM Module để lấy chính xác module cốt lõi (default export)
+  const admin = importedModule.default || importedModule
+
+  if (!admin.apps || admin.apps.length === 0) {
+    try {
+      const serviceAccount = JSON.parse(readFileSync(join(process.cwd(), 'firebase-service-account.json'), 'utf8'))
+      firebaseApp = admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount)
+      })
+    } catch (e) {
+      console.error('Firebase Admin init error:', e)
+    }
+  }
+  return admin
+}
+
+export const saveDebtTool = tool({
+  description: 'Save or update a customer\'s debt information in the database.',
+  inputSchema: z.object({
+    user_id_platform: z.string().describe('The Zalo or Facebook user ID of the customer.'),
+    customer_name: z.string().describe('The name of the customer.'),
+    amount: z.number().describe('The debt amount.'),
+    due_date: z.string().optional().describe('Optional due date in YYYY-MM-DD format.'),
+    description: z.string().optional().describe('Description of the debt.')
+  }),
+  execute: async ({ user_id_platform, customer_name, amount, due_date, description }) => {
+    const supabase = useSupabase()
+    const { data, error } = await supabase
+      .from('debts')
+      .upsert({
+        user_id_platform,
+        customer_name,
+        amount,
+        due_date: due_date || null,
+        description: description || ''
+      }, { onConflict: 'user_id_platform' })
+      .select()
+
+    if (error) return { error: error.message }
+    return { success: true, data }
+  }
+})
+
+export const saveKnowledgeTool = tool({
+  description: 'Save product information, tax laws, or general knowledge to the database.',
+  inputSchema: z.object({
+    category: z.enum(['tax', 'product', 'general']).default('general').describe('The category of the knowledge.'),
+    content: z.string().describe('The actual content/knowledge to store.'),
+    metadata: z.record(z.string(), z.any()).optional().describe('Optional metadata (e.g., source, tags).')
+  }),
+  execute: async ({ category, content, metadata }) => {
+    const supabase = useSupabase()
+    const { data, error } = await supabase
+      .from('knowledge_base')
+      .insert({
+        category,
+        content,
+        metadata: metadata || {}
+      })
+      .select()
+
+    if (error) return { error: error.message }
+    return { success: true, data }
+  }
+})
+
+export const searchKnowledgeTool = tool({
+  description: 'Search the knowledge base for relevant information to answer user questions about products, taxes, or debts.',
+  inputSchema: z.object({
+    query: z.string().describe('The search query or keywords.'),
+    category: z.enum(['tax', 'product', 'general']).optional().describe('Optional category filter.')
+  }),
+  execute: async ({ query, category }) => {
+    const supabase = useSupabase()
+    let q = supabase
+      .from('knowledge_base')
+      .select('*')
+      .ilike('content', `%${query}%`)
+    
+    if (category) {
+      q = q.eq('category', category)
+    }
+
+    const { data, error } = await q.limit(5)
+
+    if (error) return { error: error.message }
+    return { success: true, results: data }
+  }
+})
+
+export const updateKnowledgeTool = tool({
+  description: 'Update existing product information, pricing, or knowledge in the database by its ID.',
+  inputSchema: z.object({
+    id: z.string().describe('The ID of the knowledge record to update (obtained from search_knowledge).'),
+    category: z.enum(['tax', 'product', 'general']).optional().describe('Optional new category.'),
+    content: z.string().optional().describe('The new updated content (e.g., new price, updated description).'),
+    metadata: z.record(z.string(), z.any()).optional().describe('Optional updated metadata.')
+  }),
+  execute: async ({ id, category, content, metadata }) => {
+    const supabase = useSupabase()
+    
+    const updateData: any = {}
+    if (category) updateData.category = category
+    if (content) updateData.content = content
+    if (metadata) updateData.metadata = metadata
+
+    const { data, error } = await supabase
+      .from('knowledge_base')
+      .update(updateData)
+      .eq('id', id)
+      .select()
+
+    if (error) return { error: error.message }
+    if (!data || data.length === 0) return { error: 'Record not found to update.' }
+    return { success: true, message: 'Đã cập nhật thông tin thành công.', data }
+  }
+})
+
+export const deleteKnowledgeTool = tool({
+  description: 'Delete outdated product information or knowledge from the database by its ID.',
+  inputSchema: z.object({
+    id: z.string().describe('The ID of the knowledge record to delete (obtained from search_knowledge).')
+  }),
+  execute: async ({ id }) => {
+    const supabase = useSupabase()
+    const { error } = await supabase
+      .from('knowledge_base')
+      .delete()
+      .eq('id', id)
+
+    if (error) return { error: error.message }
+    return { success: true, message: 'Đã xóa dữ liệu thành công.' }
+  }
+})
+
+export const searchTool = tool({
+  description: 'Search the web for up-to-date information, news, or facts using Tavily.',
+  inputSchema: z.object({
+    query: z.string().describe('The search query.')
+  }),
+  execute: async ({ query }) => {
+    const config = useRuntimeConfig()
+    const apiKey = config.tavilyApiKey || process.env.TAVILY_API_KEY
+    
+    const response = await $fetch('https://api.tavily.com/search', {
+      method: 'POST',
+      body: {
+        api_key: apiKey,
+        query,
+        search_depth: 'smart',
+        include_answer: true
+      }
+    })
+    
+    return response
+  }
+})
+
+export const syncFirestoreToSupabaseTool = tool({
+  description: 'Sync data from a Firebase Firestore collection to a Supabase table. Use this for orders, customers, payouts, etc.',
+  inputSchema: z.object({
+    collectionName: z.string().describe('The name of the Firestore collection (e.g., "orders", "affiliate_payouts").'),
+    targetTable: z.string().describe('The destination table name in Supabase (usually same as collection).'),
+    limit: z.number().optional().default(10).describe('Number of records to sync.')
+  }),
+  execute: async ({ collectionName, targetTable, limit }) => {
+    try {
+      const admin = await getFirebaseAdmin()
+      const db = admin.firestore()
+      
+      // Bỏ hẳn orderBy để tránh việc Firestore tự động bỏ qua các bản ghi không có trường createdAt
+      const snapshot = await db.collection(collectionName).limit(limit).get()
+      
+      if (snapshot.empty) return { message: 'Thành công truy cập, nhưng hoàn toàn KHÔNG tìm thấy dữ liệu bất kỳ nào trong collection: ' + collectionName }
+      
+      const records = snapshot.docs.map(doc => {
+        const rawData = doc.data()
+        return {
+          id: doc.id,
+          // Rút trích tự động nhãn email của chủ để làm RLS khóa bảo mật
+          user_email: rawData.ownerEmail || rawData.email || rawData.createdByEmail || rawData.userEmail || 'unknown',
+          data: rawData, // Đóng hộp nguyên trạng mọi loại trường linh tinh vào 1 cột cục bộ JSONB
+          sync_at: new Date().toISOString()
+        }
+      })
+
+      const supabase = useSupabase()
+      const { data, error } = await supabase
+        .from(targetTable)
+        .upsert(records, { onConflict: 'id' })
+        .select()
+
+      if (error) return { error: `Cơ sở dữ liệu Supabase từ chối nhận vì lỗi cấu trúc bảng '${targetTable}'. Chi tiết lỗi: ${error.message}` }
+      return { success: true, count: records.length, synced: data }
+    } catch (e: any) {
+      console.error('Lỗi sập Tool Sync:', e)
+      return { error: 'Cực kỳ nghiêm trọng: Tool đã bị SẬP do lỗi kỹ thuật mạng hoặc code. Chi tiết máy chủ báo lại: ' + e.message }
+    }
+  }
+})
+
+export const queryAppDatabaseTool = tool({
+  description: 'Tra cứu dữ liệu từ cơ sở dữ liệu thực của app. Dùng quyền ALL_ADMIN để xem tất cả nếu được Admin yêu cầu, hoặc gắn đúng email để chặn xem riêng.',
+  inputSchema: z.object({
+    tableName: z.enum(['users', 'orders', 'cash_book', 'payments', 'customers', 'affiliate_payouts']).describe('Tên bảng chứa dữ liệu cần tra cứu.'),
+    user_email: z.string().describe('Email lịch sử của ai thì điền người đó. NHƯNG NẾU LÀ ADMIN CẦN XEM TOÀN BỘ, TRUYỀN CHÍNH XÁC CHỮ "ALL_ADMIN" VÀO ĐÂY.'),
+    email_column: z.string().default('user_email').describe('Tên cột chứa email trong bảng tương ứng (thường là "user_email").'),
+    limit: z.number().optional().default(1000)
+  }),
+  execute: async ({ tableName, user_email, email_column, limit }) => {
+    try {
+      const supabase = useSupabase()
+      
+      // Lấy thêm số lượng và tắt giới hạn quá nhỏ để tránh tính toán sai
+      let query = supabase.from(tableName).select('*').limit(limit)
+      
+      // Nếu không phải là Super Admin, mới tiền hành gài chốt khóa chặn người lạ
+      if (user_email !== 'ALL_ADMIN') {
+         query = query.eq(email_column, user_email)
+      }
+
+      const { data, error } = await query
+
+      if (error) return { error: `Dữ liệu bị lỗi khi chọc vào bảng ${tableName}: ${error.message}` }
+      if (!data || data.length === 0) return { message: `KHÔNG có dữ liệu nào trong bảng [${tableName}].` }
+      
+      // Nếu dữ liệu quá lớn, báo cáo tổng thay vì trả về toàn bộ chi tiết (giảm Token)
+      return { success: true, count: data.length, records_thay_duoc: data }
+    } catch (e: any) {
+      return { error: 'Server sập khi truy vấn dữ liệu app: ' + e.message }
+    }
+  }
+})
+
+export const saveUserMemoryTool = tool({
+  description: 'Lưu lại thói quen, sở thích hoặc một ghi chú quan trọng về khách hàng Zalo này (chỉ định bởi user_email) vào bộ não dài hạn để học lỏm.',
+  inputSchema: z.object({
+    user_email: z.string().describe('Email định danh của người dùng hiện tại.'),
+    memory_content: z.string().describe('Nội dung cần ghi nhớ về thói quen/giao dịch/đặc điểm của người này.')
+  }),
+  execute: async ({ user_email, memory_content }) => {
+    try {
+      const supabase = useSupabase()
+      await supabase.from('user_memories').insert({
+        user_email,
+        memory_content,
+        created_at: new Date().toISOString()
+      })
+      return { success: true, message: 'Đã khắc sâu vào bộ não dài hạn, sẽ không bao giờ quên người này.' }
+    } catch (e: any) { return { error: e.message } }
+  }
+})
+
+export const searchUserMemoryTool = tool({
+  description: 'Tìm kiếm lại các ghi chú thói quen lịch sử, hồ sơ tâm lý và giao dịch cũ mà Bot từng học được từ user_email Zalo này.',
+  inputSchema: z.object({
+    user_email: z.string().describe('Email định danh của người dùng hiện tại.')
+  }),
+  execute: async ({ user_email }) => {
+    try {
+      const supabase = useSupabase()
+      const { data, error } = await supabase.from('user_memories').select('*').eq('user_email', user_email).limit(10).order('created_at', { ascending: false })
+      if (error) return { error: error.message }
+      if (!data || data.length === 0) return { message: 'Chưa học được thói quen gì từ lúc Zalo bot tiếp xúc khách có email này.' }
+      return { success: true, memories: data }
+    } catch (e: any) { return { error: e.message } }
+  }
+})

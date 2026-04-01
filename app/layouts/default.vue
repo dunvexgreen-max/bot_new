@@ -5,7 +5,7 @@ import { useClipboard } from '@vueuse/core'
 const route = useRoute()
 const toast = useToast()
 const overlay = useOverlay()
-const { loggedIn, openInPopup } = useUserSession()
+const { loggedIn } = useUserSession()
 const { csrf, headerName } = useCsrf()
 const { copy: copyUrl } = useClipboard()
 

@@ -35,8 +35,7 @@ export default defineEventHandler(async (event) => {
     }
 
     return session || null
-  }
-  catch (error) {
+  } catch (error) {
     console.error('[Auth Session Error]', error)
     return null
   }

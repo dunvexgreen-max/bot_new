@@ -4,7 +4,6 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 
 // Initialize Firebase Admin (lazy)
-let firebaseApp: any = null
 const getFirebaseAdmin = async () => {
   const importedModule = await import('firebase-admin')
   // Mở hộp ESM Module để lấy chính xác module cốt lõi (default export)
@@ -13,7 +12,7 @@ const getFirebaseAdmin = async () => {
   if (!admin.apps || admin.apps.length === 0) {
     try {
       const serviceAccount = JSON.parse(readFileSync(join(process.cwd(), 'firebase-service-account.json'), 'utf8'))
-      firebaseApp = admin.initializeApp({
+      admin.initializeApp({
         credential: admin.credential.cert(serviceAccount)
       })
     } catch (e) {
@@ -85,7 +84,7 @@ export const searchKnowledgeTool = tool({
       .from('knowledge_base')
       .select('*')
       .ilike('content', `%${query}%`)
-    
+
     if (category) {
       q = q.eq('category', category)
     }
@@ -107,7 +106,7 @@ export const updateKnowledgeTool = tool({
   }),
   execute: async ({ id, category, content, metadata }) => {
     const supabase = useSupabase()
-    
+
     const updateData: any = {}
     if (category) updateData.category = category
     if (content) updateData.content = content
@@ -150,7 +149,7 @@ export const searchTool = tool({
   execute: async ({ query }) => {
     const config = useRuntimeConfig()
     const apiKey = config.tavilyApiKey || process.env.TAVILY_API_KEY
-    
+
     const response = await $fetch('https://api.tavily.com/search', {
       method: 'POST',
       body: {
@@ -160,7 +159,7 @@ export const searchTool = tool({
         include_answer: true
       }
     })
-    
+
     return response
   }
 })
@@ -176,13 +175,13 @@ export const syncFirestoreToSupabaseTool = tool({
     try {
       const admin = await getFirebaseAdmin()
       const db = admin.firestore()
-      
+
       // Bỏ hẳn orderBy để tránh việc Firestore tự động bỏ qua các bản ghi không có trường createdAt
       const snapshot = await db.collection(collectionName).limit(limit).get()
-      
+
       if (snapshot.empty) return { message: 'Thành công truy cập, nhưng hoàn toàn KHÔNG tìm thấy dữ liệu bất kỳ nào trong collection: ' + collectionName }
-      
-      const records = snapshot.docs.map(doc => {
+
+      const records = snapshot.docs.map((doc) => {
         const rawData = doc.data()
         return {
           id: doc.id,
@@ -219,20 +218,20 @@ export const queryAppDatabaseTool = tool({
   execute: async ({ tableName, user_email, email_column, limit }) => {
     try {
       const supabase = useSupabase()
-      
+
       // Lấy thêm số lượng và tắt giới hạn quá nhỏ để tránh tính toán sai
       let query = supabase.from(tableName).select('*').limit(limit)
-      
+
       // Nếu không phải là Super Admin, mới tiền hành gài chốt khóa chặn người lạ
       if (user_email !== 'ALL_ADMIN') {
-         query = query.eq(email_column, user_email)
+        query = query.eq(email_column, user_email)
       }
 
       const { data, error } = await query
 
       if (error) return { error: `Dữ liệu bị lỗi khi chọc vào bảng ${tableName}: ${error.message}` }
       if (!data || data.length === 0) return { message: `KHÔNG có dữ liệu nào trong bảng [${tableName}].` }
-      
+
       // Nếu dữ liệu quá lớn, báo cáo tổng thay vì trả về toàn bộ chi tiết (giảm Token)
       return { success: true, count: data.length, records_thay_duoc: data }
     } catch (e: any) {
@@ -343,10 +342,10 @@ export const fetchWebContentTool = tool({
     // Stage 3: Fallback to Jina Reader (Robust alternative scraping pipeline)
     try {
       const jinaResponse = await $fetch(`https://r.jina.ai/${url}`, {
-        headers: { 'Accept': 'application/json' },
+        headers: { Accept: 'application/json' },
         timeout: 15000
       }) as any
-      
+
       if (jinaResponse && jinaResponse.data) {
         return {
           success: true,
@@ -360,15 +359,15 @@ export const fetchWebContentTool = tool({
       console.error(`[AI-Tool] All extraction methods failed for ${url}:`, e.message)
     }
 
-    return { 
-      error: 'Hệ thống bảo mật của website này đang ngăn chặn việc bóc tách dữ liệu tự động. Vui lòng copy nội dung hoặc chụp ảnh gửi trực tiếp để tôi hỗ trợ nhé.' 
+    return {
+      error: 'Hệ thống bảo mật của website này đang ngăn chặn việc bóc tách dữ liệu tự động. Vui lòng copy nội dung hoặc chụp ảnh gửi trực tiếp để tôi hỗ trợ nhé.'
     }
   }
 })
 
 // --- YouTube Transcript Helpers (Re-implemented for reliability) ---
 
-const YT_ID_REGEX = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i
+const YT_ID_REGEX = /(?:youtube\.com\/(?:[^/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?/\s]{11})/i
 const YT_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.83 Safari/537.36,gzip(gfe)'
 const YT_API_URL = 'https://www.youtube.com/youtubei/v1/player?prettyPrint=false'
 const YT_CLIENT_VERSION = '20.10.38'
@@ -383,7 +382,7 @@ function extractVideoId(url: string): string {
 
 async function fetchYoutubeTranscript(url: string) {
   const videoId = extractVideoId(url)
-  
+
   // Try InnerTube API (Android client)
   try {
     const response = await fetch(YT_API_URL, {
@@ -391,7 +390,7 @@ async function fetchYoutubeTranscript(url: string) {
       headers: { 'Content-Type': 'application/json', 'User-Agent': `com.google.android.youtube/${YT_CLIENT_VERSION} (Linux; U; Android 14)` },
       body: JSON.stringify({ context: YT_CONTEXT, videoId })
     })
-    
+
     if (response.ok) {
       const data: any = await response.json()
       const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks
@@ -408,13 +407,16 @@ async function fetchYoutubeTranscript(url: string) {
     const pageText = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
       headers: { 'User-Agent': YT_USER_AGENT }
     }).then(r => r.text())
-    
+
     const jsonMatch = pageText.match(/var ytInitialPlayerResponse = (\{.+?\});/)
     if (jsonMatch) {
       const playerResponse = JSON.parse(jsonMatch[1])
       const tracks = playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks
       if (Array.isArray(tracks) && tracks.length > 0) {
-        return await fetchAndParseTranscript(tracks[0].baseUrl)
+        const baseUrl = tracks[0].baseUrl
+        if (baseUrl) {
+          return await fetchAndParseTranscript(baseUrl)
+        }
       }
     }
   } catch (e) {
@@ -426,55 +428,56 @@ async function fetchYoutubeTranscript(url: string) {
 
 async function fetchAndParseTranscript(baseUrl: string) {
   const xml = await fetch(baseUrl, { headers: { 'User-Agent': YT_USER_AGENT } }).then(r => r.text())
-  
+
   const segments = []
   const pRegex = /<p\s+t="(\d+)"\s+d="(\d+)"[^>]*>([\s\S]*?)<\/p>/g
   let match
-  
+
   while ((match = pRegex.exec(xml)) !== null) {
     const start = parseInt(match[1], 10)
     const duration = parseInt(match[2], 10)
     let text = match[3]
-    
+
     // Simple entity decode and tag removal
-    text = text.replace(/<[^>]+>/g, '')
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'")
-    
-    if (text.trim()) {
-      segments.push({ text: text.trim(), duration, offset: start })
+    let cleanText = (text || '')
+    cleanText = cleanText.replace(/<[^>]+>/g, '')
+    cleanText = cleanText.replace(/&amp;/g, '&')
+    cleanText = cleanText.replace(/&lt;/g, '<')
+    cleanText = cleanText.replace(/&gt;/g, '>')
+    cleanText = cleanText.replace(/&quot;/g, '"')
+    cleanText = cleanText.replace(/&#39;/g, '\'')
+
+    if (cleanText && cleanText.trim()) {
+      segments.push({ text: cleanText.trim(), duration, offset: start })
     }
   }
-  
+
   return segments
 }
 
 export const fetchYoutubeTranscriptTool = tool({
   description: 'Extracts the transcript/captions from a YouTube video given its URL.',
-  parameters: z.object({
+  inputSchema: z.object({
     url: z.string().describe('The URL of the YouTube video.')
   }),
   execute: async ({ url }) => {
     try {
       const transcript = await fetchYoutubeTranscript(url)
-      
+
       if (!transcript || transcript.length === 0) {
         return { error: 'No transcript found for this video. It might not have captions enabled.' }
       }
 
       // Combine transcript parts into a single text
       const fullText = transcript.map(part => part.text).join(' ')
-      
+
       return {
         url,
         transcript: fullText,
         segments: transcript
       }
-    } catch (e: any) {
-      return { error: `Failed to fetch YouTube transcript: ${e.message}\nNote: Some videos may not have available transcripts or are region-restricted.` }
+    } catch (e: unknown) {
+      return { error: `Failed to fetch YouTube transcript: ${(e as Error).message}\nNote: Some videos may not have available transcripts or are region-restricted.` }
     }
   }
 })

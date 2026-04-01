@@ -10,8 +10,8 @@ const { data, refresh } = await useFetch('/api/settings/system-prompt', {
   headers: { [headerName]: csrf }
 })
 
-if (data.value) {
-  prompt.value = data.value.value || ''
+if (data.value && 'value' in data.value) {
+  prompt.value = (data.value as { value: string }).value || ''
 }
 
 async function saveSettings() {
@@ -22,19 +22,19 @@ async function saveSettings() {
       body: { value: prompt.value },
       headers: { [headerName]: csrf }
     })
-    toast.add({ 
-      title: 'Đã lưu cấu hình!', 
+    toast.add({
+      title: 'Đã lưu cấu hình!',
       description: 'Hệ thống đã cập nhật trí tuệ mới nhất cho Bot.',
       icon: 'i-lucide-check-circle',
-      color: 'primary' 
+      color: 'primary'
     })
     await refresh()
-  } catch (e: any) {
-    toast.add({ 
-      title: 'Lỗi khi lưu', 
-      description: e.message || 'Vui lòng thử lại', 
+  } catch (e: unknown) {
+    toast.add({
+      title: 'Lỗi khi lưu',
+      description: (e as Error).message || 'Vui lòng thử lại',
       icon: 'i-lucide-alert-triangle',
-      color: 'red' 
+      color: 'error'
     })
   } finally {
     loading.value = false
@@ -48,10 +48,17 @@ async function saveSettings() {
     <header class="h-16 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 flex items-center justify-between px-6 z-20">
       <div class="flex items-center gap-2">
         <UIcon name="i-lucide-settings-2" class="w-5 h-5 text-primary-500" />
-        <h1 class="text-lg font-bold">Cấu hình Trợ lý Bot</h1>
+        <h1 class="text-lg font-bold">
+          Cấu hình Trợ lý Bot
+        </h1>
       </div>
       <div class="flex items-center gap-3">
-        <UBadge v-if="loading" label="Đang lưu..." color="gray" variant="soft" />
+        <UBadge
+          v-if="loading"
+          label="Đang lưu..."
+          color="neutral"
+          variant="soft"
+        />
         <UButton
           label="Lưu Cấu Hình (Ctrl+S)"
           icon="i-lucide-save"
@@ -73,8 +80,12 @@ async function saveSettings() {
             <UIcon name="i-lucide-brain-circuit" class="w-7 h-7 text-white" />
           </div>
           <div>
-            <h2 class="text-2xl font-black tracking-tight">Trí Tuệ Hệ Thống</h2>
-            <p class="text-sm text-gray-500 dark:text-gray-400">Định nghĩa vai trò, phong cách và các kỹ năng cốt lõi cho Bot</p>
+            <h2 class="text-2xl font-black tracking-tight">
+              Trí Tuệ Hệ Thống
+            </h2>
+            <p class="text-sm text-gray-500 dark:text-gray-400">
+              Định nghĩa vai trò, phong cách và các kỹ năng cốt lõi cho Bot
+            </p>
           </div>
         </div>
 
@@ -88,7 +99,7 @@ async function saveSettings() {
               <UButton
                 label="Xóa toàn bộ"
                 icon="i-lucide-trash-2"
-                color="red"
+                color="error"
                 variant="ghost"
                 size="xs"
                 @click="prompt = ''"
@@ -102,8 +113,8 @@ async function saveSettings() {
             autofocus
             placeholder="Dán hoặc nhập hướng dẫn vận hành tại đây..."
             class="font-mono text-base w-full min-h-[600px] p-4 bg-transparent focus:ring-2 focus:ring-primary-500 focus:outline-none border-0 resize-none text-gray-900 dark:text-gray-100"
-          ></textarea>
-          
+          />
+
           <template #footer>
             <div class="flex items-center justify-between text-xs text-gray-400 font-medium">
               <div class="flex items-center gap-6">
@@ -120,27 +131,39 @@ async function saveSettings() {
 
         <!-- Tool Guide Grid -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 pb-12">
-           <div class="p-5 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white/50 dark:bg-gray-900/50 flex gap-4">
-              <UIcon name="i-lucide-search" class="w-6 h-6 text-primary-500" />
-              <div>
-                <h4 class="font-bold text-sm">Tra Cứu Web</h4>
-                <p class="text-xs text-gray-500 mt-1">Dùng search_web khi cần thông tin thời gian thực hoặc tin tức mới.</p>
-              </div>
-           </div>
-           <div class="p-5 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white/50 dark:bg-gray-900/50 flex gap-4">
-              <UIcon name="i-lucide-database" class="w-6 h-6 text-orange-500" />
-              <div>
-                <h4 class="font-bold text-sm">Cơ Sở Dữ Liệu</h4>
-                <p class="text-xs text-gray-500 mt-1">Dùng search_knowledge để tìm dữ liệu từ tệp tin đã học.</p>
-              </div>
-           </div>
-           <div class="p-5 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white/50 dark:bg-gray-900/50 flex gap-4">
-              <UIcon name="i-lucide-sync" class="w-6 h-6 text-green-500" />
-              <div>
-                <h4 class="font-bold text-sm">Đồng Bộ Firestore</h4>
-                <p class="text-xs text-gray-500 mt-1">Dùng sync_firestore để đẩy dữ liệu mới về kho lưu trữ.</p>
-              </div>
-           </div>
+          <div class="p-5 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white/50 dark:bg-gray-900/50 flex gap-4">
+            <UIcon name="i-lucide-search" class="w-6 h-6 text-primary-500" />
+            <div>
+              <h4 class="font-bold text-sm">
+                Tra Cứu Web
+              </h4>
+              <p class="text-xs text-gray-500 mt-1">
+                Dùng search_web khi cần thông tin thời gian thực hoặc tin tức mới.
+              </p>
+            </div>
+          </div>
+          <div class="p-5 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white/50 dark:bg-gray-900/50 flex gap-4">
+            <UIcon name="i-lucide-database" class="w-6 h-6 text-orange-500" />
+            <div>
+              <h4 class="font-bold text-sm">
+                Cơ Sở Dữ Liệu
+              </h4>
+              <p class="text-xs text-gray-500 mt-1">
+                Dùng search_knowledge để tìm dữ liệu từ tệp tin đã học.
+              </p>
+            </div>
+          </div>
+          <div class="p-5 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white/50 dark:bg-gray-900/50 flex gap-4">
+            <UIcon name="i-lucide-sync" class="w-6 h-6 text-green-500" />
+            <div>
+              <h4 class="font-bold text-sm">
+                Đồng Bộ Firestore
+              </h4>
+              <p class="text-xs text-gray-500 mt-1">
+                Dùng sync_firestore để đẩy dữ liệu mới về kho lưu trữ.
+              </p>
+            </div>
+          </div>
         </div>
       </div>
     </main>

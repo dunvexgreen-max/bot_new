@@ -22,7 +22,7 @@ export default defineEventHandler(async (event) => {
 
   try {
     // Try to get existing session
-    let session = await getUserSession(event)
+    const session = await getUserSession(event)
 
     // If no session exists, create a mock one for dev
     if (!session || !session.user) {
@@ -43,8 +43,7 @@ export default defineEventHandler(async (event) => {
 
       console.log('[Dev Auth] Injected mock session for:', path)
     }
-  }
-  catch (error) {
+  } catch (error) {
     console.debug('[Dev Auth Middleware] Error:', error)
   }
 })

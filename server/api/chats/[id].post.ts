@@ -1,3 +1,4 @@
+import type { H3Event } from 'h3'
 import { blob } from 'hub:blob'
 import type { UIMessage } from 'ai'
 import { convertToModelMessages, createUIMessageStream, createUIMessageStreamResponse, generateText, smoothStream, stepCountIs, streamText } from 'ai'
@@ -36,24 +37,12 @@ async function fetchFileAsBuffer(url: string): Promise<Uint8Array> {
     }
     const buffer = await response.arrayBuffer()
     return new Uint8Array(buffer)
-  }
-  catch (error) {
+  } catch (error) {
     console.error('Error fetching file:', error)
     throw new Error(`Could not download file from URL: ${url}`)
   }
 }
 
-/**
- * Helper: Convert Buffer/Uint8Array to base64 string
- */
-function bufferToBase64(buffer: Uint8Array): string {
-  let binary = ''
-  const len = buffer.byteLength
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(buffer[i]!)
-  }
-  return btoa(binary)
-}
 defineRouteMeta({
   openAPI: {
     description: 'Chat with AI.',
@@ -65,29 +54,21 @@ defineRouteMeta({
  * Process file URLs in messages to make them compatible with AI models.
  * Download files/images on server side as standard AI SDK models expect data or public URLs.
  */
-async function processMessagesForAI(event: any, messages: UIMessage[]) {
+async function processMessagesForAI(event: H3Event, messages: UIMessage[]) {
   // Get request origin to handle relative URLs
   const { origin } = getRequestURL(event)
 
-  console.log(`[AI] Processing ${messages.length} messages. Last message structure:`, JSON.stringify({
-    role: messages[messages.length - 1]?.role,
-    hasParts: !!messages[messages.length - 1]?.parts,
-    partsCount: messages[messages.length - 1]?.parts?.length,
-    hasAttachments: !!(messages[messages.length - 1] as any)?.experimental_attachments,
-    attachmentsCount: (messages[messages.length - 1] as any)?.experimental_attachments?.length
-  }, null, 2))
-
-  const processedMessages = await Promise.all(
+  return await Promise.all(
     messages.map(async (message: any) => {
       const originalParts = message.parts || []
-      const experimentalAttachments = message.experimental_attachments || []
-      
+      const experimentalAttachments = (message as any).experimental_attachments || (message as any).files || []
+
       // Combine parts and attachments into a unique list of candidate parts
       const candidateParts = [...originalParts]
-      
+
       // Add experimental attachments that aren't already represented in parts
       for (const att of experimentalAttachments) {
-        if (!candidateParts.some(p => p.url === att.url)) {
+        if (!candidateParts.some((p: any) => p.url === att.url)) {
           candidateParts.push({
             type: att.contentType?.startsWith('image/') ? 'image' : 'file',
             url: att.url,
@@ -108,59 +89,31 @@ async function processMessagesForAI(event: any, messages: UIMessage[]) {
       const processedParts = await Promise.all(
         candidateParts.map(async (part: any) => {
           if (part.type === 'text') return part
+          if (!part.url) return part
 
-          // Only process parts with URLs that haven't been downloaded yet
-          if ((part.url || part.pathname) && !part.image && !part.data) {
-            try {
-              const mimeType = part.mediaType || part.mimeType || 'application/octet-stream'
-              let buffer: Uint8Array
+          try {
+            // Convert relative URLs to absolute
+            const absoluteUrl = part.url.startsWith('http') ? part.url : `${origin}${part.url}`
+            const data = await fetchFileAsBuffer(absoluteUrl)
 
-              // Resolve pathname from hub URLs if missing
-              if (!part.pathname && part.url?.includes('/_hub/blob/')) {
-                part.pathname = part.url.split('/_hub/blob/')[1]?.split('?')[0]
-              }
-
-              if (part.pathname) {
-                const blobEntry = await blob.get(part.pathname)
-                if (blobEntry) {
-                   const arrayBuffer = await blobEntry.arrayBuffer()
-                   buffer = new Uint8Array(arrayBuffer)
-                } else {
-                   throw new Error(`Blob not found: ${part.pathname}`)
-                }
-              } 
-              else {
-                const absoluteUrl = part.url.startsWith('/') ? `${origin}${part.url}` : part.url
-                buffer = await fetchFileAsBuffer(absoluteUrl)
-              }
-
-              // Return proper content part based on MIME type
-              if (mimeType.startsWith('image/')) {
-                return { type: 'image', image: buffer, mimeType }
-              }
-              return { type: 'file', data: buffer, mimeType }
+            return {
+              type: part.type as 'image' | 'file',
+              data,
+              mediaType: part.mediaType || 'application/octet-stream'
             }
-            catch (error) {
-              console.error(`[AI] Error downloading part (${part.type}):`, (error as Error).message)
-              // We return the raw part with URL as fallback, 
-              // but the AI SDK might not know what to do with it unless we convert to attachment later
-              return part 
-            }
+          } catch (error) {
+            console.error(`Failed to process part ${part.url}:`, error)
+            return part
           }
-          return part
         })
       )
 
-      console.log(`[AI] Message processed: role=${message.role}, parts=${processedParts.length}`)
-      
       return {
         ...message,
         parts: processedParts
       }
     })
   )
-
-  return processedMessages
 }
 
 export default defineEventHandler(async (event) => {
@@ -185,7 +138,7 @@ export default defineEventHandler(async (event) => {
       if (lastMsg.parts) {
         console.log(`[AI-DEBUG] Last message parts count: ${lastMsg.parts.length}`)
         lastMsg.parts.forEach((p: any, i: number) => {
-          console.log(`[AI-DEBUG] Part ${i}: type=${p.type}, ${p.text ? 'text="'+p.text.substring(0, 20)+'..." ' : ''}${p.url ? 'url='+p.url : ''}`)
+          console.log(`[AI-DEBUG] Part ${i}: type=${p.type}, ${p.text ? 'text="' + p.text.substring(0, 20) + '..." ' : ''}${p.url ? 'url=' + p.url : ''}`)
         })
       }
     }
@@ -230,7 +183,7 @@ export default defineEventHandler(async (event) => {
     if (!lastMessage.parts || lastMessage.parts.length === 0) {
       const attachments = lastMessage.experimental_attachments || lastMessage.files || []
       const text = lastMessage.content || lastMessage.text || lastMessage.message || ''
-      
+
       if (attachments.length > 0) {
         lastMessage.parts = attachments.map((a: any) => ({
           type: a.contentType?.startsWith('image/') ? 'image' : 'file',
@@ -238,12 +191,12 @@ export default defineEventHandler(async (event) => {
           mediaType: a.contentType || a.mediaType,
           name: a.name
         }))
-        
+
         if (text) {
           lastMessage.parts.unshift({ type: 'text', text })
         }
       } else if (text) {
-         lastMessage.parts = [{ type: 'text', text }]
+        lastMessage.parts = [{ type: 'text', text }]
       }
     }
 
@@ -251,7 +204,7 @@ export default defineEventHandler(async (event) => {
       await db.insert(schema.messages).values({
         chatId: id as string,
         role: 'user',
-        parts: lastMessage.parts
+        parts: lastMessage.parts as any[]
       }).onConflictDoNothing()
     }
   }

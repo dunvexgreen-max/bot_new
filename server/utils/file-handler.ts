@@ -20,8 +20,7 @@ export async function fetchFileAsBuffer(url: string): Promise<Uint8Array> {
 
     const buffer = await response.arrayBuffer()
     return new Uint8Array(buffer)
-  }
-  catch (error) {
+  } catch (error) {
     console.error('Error fetching file:', error)
     throw new Error(`Could not download file from URL: ${url}`)
   }
@@ -52,8 +51,7 @@ export async function processFileForGemini(fileUrl: string, mimeType: string) {
       mimeType,
       url: fileUrl // Gemini supports direct image URLs
     }
-  }
-  else {
+  } else {
     // For non-image files (PDF, CSV, etc.), download and convert to base64
     const buffer = await fetchFileAsBuffer(fileUrl)
     const base64 = bufferToBase64(buffer)

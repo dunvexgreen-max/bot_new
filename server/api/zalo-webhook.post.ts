@@ -1,7 +1,7 @@
 import { generateText } from 'ai'
 import { google } from '@ai-sdk/google'
 
-export default defineEventHandler(async (event) => {
+export default defineEventHandler(async (_event) => {
   const body = await readBody(event)
   const config = useRuntimeConfig()
 
@@ -17,7 +17,7 @@ export default defineEventHandler(async (event) => {
   // Với Zalo Bot Token này, chúng ta sẽ thử gửi phản hồi trực tiếp.
 
   const supabase = useSupabase()
-  
+
   // Lấy dữ liệu công nợ
   const { data: debtData } = await supabase
     .from('debts')
@@ -52,9 +52,9 @@ export default defineEventHandler(async (event) => {
         text: responseText
       }
     })
-  } catch (err: any) {
-    console.error('Lỗi khi gửi tin nhắn Zalo:', err.data || err.message)
-    
+  } catch (err: unknown) {
+    console.error('Lỗi khi gửi tin nhắn Zalo:', (err as any).data || (err as Error).message)
+
     // Fallback: Nếu là Zalo OA API truyền thống
     try {
       await $fetch('https://openapi.zalo.me/v2.0/oa/message', {
@@ -65,13 +65,13 @@ export default defineEventHandler(async (event) => {
           message: { text: responseText }
         }
       })
-    } catch (oaErr) {
+    } catch (_oaErr) {
       console.error('Cả 2 cách gửi tin nhắn Zalo đều thất bại.')
     }
   }
 
-  return { 
-    status: 'success', 
-    reply: responseText 
+  return {
+    status: 'success',
+    reply: responseText
   }
 })

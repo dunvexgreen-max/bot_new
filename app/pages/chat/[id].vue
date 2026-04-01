@@ -59,7 +59,7 @@ let lastSubmitTime = 0
 
 async function handleSubmit(e: Event) {
   e.preventDefault()
-  
+
   // Chống dội (debounce) để fix lỗi bàn phím tiếng Việt (IME) Gõ Enter bị tách chữ
   const now = Date.now()
   if (now - lastSubmitTime < 200) return
@@ -67,14 +67,14 @@ async function handleSubmit(e: Event) {
 
   if ((input.value.trim() || uploadedFiles.value.length > 0) && !isUploading.value) {
     const textToSubmit = input.value.trim()
-    
+
     // Construct parts array for multimodal message
-    const parts: any[] = []
-    
+    const parts: UIMessage['parts'] = []
+
     if (textToSubmit) {
       parts.push({ type: 'text', text: textToSubmit })
     }
-    
+
     if (uploadedFiles.value.length > 0) {
       parts.push(...uploadedFiles.value)
     }
@@ -90,8 +90,8 @@ async function handleSubmit(e: Event) {
       text: textToSubmit,
       experimental_attachments: attachments,
       parts
-    } as any)
-    
+    } as Parameters<typeof chat.sendMessage>[0])
+
     // Đợi 1 tick nhỏ rồi mới xóa để tránh IME bị giật
     await nextTick()
     input.value = ''
@@ -146,9 +146,9 @@ onMounted(() => {
               <div class="flex items-center justify-center gap-2 px-2">
                 <!-- Hiệu ứng ... nhấp nháy 3 chấm kiểu Zalo/Messenger -->
                 <div class="flex space-x-1 items-center h-4">
-                  <div class="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-                  <div class="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-                  <div class="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"></div>
+                  <div class="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                  <div class="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                  <div class="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" />
                 </div>
                 <UChatShimmer text="Bot đang suy nghĩ và tra cứu..." class="text-sm text-gray-400 italic" />
               </div>

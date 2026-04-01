@@ -17,15 +17,14 @@ export const FILE_UPLOAD_CONFIG = {
 export function getFileIcon(mimeType: string, fileName?: string): string {
   const type = mimeType.toLowerCase()
   const name = fileName?.toLowerCase() || ''
-  
+
   if (type.startsWith('image/')) return 'i-lucide-image'
   if (type.includes('pdf') || name.endsWith('.pdf')) return 'i-lucide-file-text'
   if (type.includes('csv') || type.includes('excel') || name.endsWith('.csv') || name.endsWith('.xlsx')) return 'i-lucide-file-spreadsheet'
-  
+
   return 'i-lucide-file'
 }
 
 export function removeRandomSuffix(filename: string): string {
   return filename.replace(/^(.+)-[a-zA-Z0-9]+(\.[^.]+)$/, '$1$2')
 }
-

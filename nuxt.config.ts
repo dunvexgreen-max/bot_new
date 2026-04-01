@@ -10,6 +10,12 @@ export default defineNuxtConfig({
     'nuxt-csurf'
   ],
 
+  devtools: {
+    enabled: true
+  },
+
+  css: ['~/assets/css/main.css'],
+
   runtimeConfig: {
     supabase: {
       url: process.env.SUPABASE_URL,
@@ -21,12 +27,6 @@ export default defineNuxtConfig({
     zaloBotToken: process.env.ZALO_BOT_TOKEN,
     tavilyApiKey: process.env.TAVILY_API_KEY
   },
-
-  devtools: {
-    enabled: true
-  },
-
-  css: ['~/assets/css/main.css'],
 
   experimental: {
     viewTransition: true

@@ -6,7 +6,7 @@ export const useSupabase = () => {
   const supabaseKey = config.supabase.key || process.env.SUPABASE_KEY
 
   if (!supabaseUrl || !supabaseKey) {
-    console.warn('Supabase config is missing. Please check your .env/runtimeConfig.')
+    throw new Error('Supabase configuration (URL or Key) is missing. Please check your environment variables (SUPABASE_URL, SUPABASE_KEY).')
   }
 
   return createClient(supabaseUrl, supabaseKey)

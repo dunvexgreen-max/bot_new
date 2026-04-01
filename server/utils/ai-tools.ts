@@ -96,7 +96,7 @@ export const searchKnowledgeTool = tool({
     const { data, error } = await q.limit(5)
 
     if (error) return { error: error.message }
-    return { success: true, results: data }
+    return { success: true, results: data || [] }
   }
 })
 
@@ -291,7 +291,7 @@ export const fetchWebContentTool = tool({
     const apiKey = config.tavilyApiKey || process.env.TAVILY_API_KEY
 
     try {
-      const response = await $fetch<{ results?: Array<{ url: string, title: string, raw_content?: string, text?: string }> }>('https://api.tavily.com/extract', {
+      const response = await $fetch<{ results?: Array<{ url: string, title?: string, raw_content?: string, text?: string }> }>('https://api.tavily.com/extract', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: {
@@ -301,14 +301,16 @@ export const fetchWebContentTool = tool({
         timeout: 15000
       })
 
-      if (response.results && response.results.length > 0 && (response.results[0].raw_content || response.results[0].text)) {
+      if (response && response.results && response.results.length > 0) {
         const result = response.results[0]
-        return {
-          success: true,
-          source: 'tavily-extract',
-          url: result.url,
-          title: result.title,
-          content: result.raw_content || result.text
+        if (result && (result.raw_content || result.text)) {
+          return {
+            success: true,
+            source: 'tavily-extract',
+            url: result.url,
+            title: result.title || 'Extracted URL',
+            content: result.raw_content || result.text || ''
+          }
         }
       }
     } catch (e: unknown) {
@@ -329,13 +331,14 @@ export const fetchWebContentTool = tool({
         timeout: 10000
       })
 
-      if (searchResponse.answer || (searchResponse.results && searchResponse.results.length > 0)) {
-        const content = searchResponse.answer || searchResponse.results![0].content
+      if (searchResponse && (searchResponse.answer || (searchResponse.results && searchResponse.results.length > 0))) {
+        const result = searchResponse.results?.[0]
+        const content = searchResponse.answer || result?.content || ''
         return {
           success: true,
           source: 'tavily-search',
           url,
-          title: searchResponse.results?.[0]?.title || 'Search Result',
+          title: result?.title || 'Search Result',
           content: content + '\n\n(Note: This was retrieved via search fallback as direct extraction was blocked.)'
         }
       }
@@ -397,7 +400,10 @@ async function fetchYoutubeTranscript(url: string) {
       const data = await response.json() as { captions?: { playerCaptionsTracklistRenderer?: { captionTracks?: { baseUrl: string }[] } } }
       const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks
       if (Array.isArray(tracks) && tracks.length > 0) {
-        return await fetchAndParseTranscript(tracks[0].baseUrl)
+        const firstTrack = tracks[0]
+        if (firstTrack && firstTrack.baseUrl) {
+          return await fetchAndParseTranscript(firstTrack.baseUrl)
+        }
       }
     }
   } catch (e) {
@@ -410,14 +416,18 @@ async function fetchYoutubeTranscript(url: string) {
     }).then(r => r.text())
 
     const jsonMatch = pageText.match(/var ytInitialPlayerResponse = (\{.+?\});/)
-    if (jsonMatch) {
-      const playerResponse = JSON.parse(jsonMatch[1]) as { captions?: { playerCaptionsTracklistRenderer?: { captionTracks?: { baseUrl: string }[] } } }
-      const tracks = playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks
-      if (Array.isArray(tracks) && tracks.length > 0) {
-        const baseUrl = tracks[0].baseUrl
-        if (baseUrl) {
-          return await fetchAndParseTranscript(baseUrl)
+    if (jsonMatch && jsonMatch[1]) {
+      try {
+        const playerResponse = JSON.parse(jsonMatch[1]) as { captions?: { playerCaptionsTracklistRenderer?: { captionTracks?: { baseUrl: string }[] } } }
+        const tracks = playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks
+        if (Array.isArray(tracks) && tracks.length > 0) {
+          const firstTrack = tracks[0]
+          if (firstTrack && firstTrack.baseUrl) {
+            return await fetchAndParseTranscript(firstTrack.baseUrl)
+          }
         }
+      } catch (e) {
+        console.error('Failed to parse YouTube player response:', e)
       }
     }
   } catch (e) {
@@ -435,8 +445,12 @@ async function fetchAndParseTranscript(baseUrl: string) {
   let match
 
   while ((match = pRegex.exec(xml)) !== null) {
-    const start = parseInt(match[1], 10)
-    const duration = parseInt(match[2], 10)
+    const startVal = match[1]
+    const durationVal = match[2]
+    if (!startVal || !durationVal) continue
+
+    const start = parseInt(startVal, 10)
+    const duration = parseInt(durationVal, 10)
     const text = match[3]
 
     // Simple entity decode and tag removal

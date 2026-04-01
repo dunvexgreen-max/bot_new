@@ -9,7 +9,8 @@ export interface FileWithStatus {
 }
 
 export const FILE_UPLOAD_CONFIG = {
-  maxSize: '50MB',
+  maxSize: 32 * 1024 * 1024,
+  maxSizeString: '32MB' as const,
   types: ['image', 'pdf', 'text/csv', 'application/pdf', 'application/vnd.ms-excel'],
   acceptPattern: '.pdf,application/pdf,image/*,.csv,text/csv,application/vnd.ms-excel'
 } as const

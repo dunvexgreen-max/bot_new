@@ -1,9 +1,12 @@
+import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { generateText } from 'ai'
-import { google } from '@ai-sdk/google'
 
-export default defineEventHandler(async (_event) => {
+export default defineEventHandler(async (event) => {
   const body = await readBody(event)
   const config = useRuntimeConfig()
+  const google = createGoogleGenerativeAI({
+    apiKey: config.google.apiKey
+  })
 
   // 1. Nhận tin nhắn từ Zalo (Giải mã body của Zalo Webhook)
   // Lưu ý: Cấu trúc message của Zalo Bot có thể khác Zalo OA.
@@ -28,7 +31,6 @@ export default defineEventHandler(async (_event) => {
   // 3. Gọi Gemini để xử lý
   const { text: responseText } = await generateText({
     model: google('gemini-1.5-flash'),
-    apiKey: config.google.apiKey,
     system: `
       Bạn là AI Thư ký tài chính thông minh của anh Thông.
       Bạn đang hỗ trợ người dùng Zalo có ID: ${fromUser}.

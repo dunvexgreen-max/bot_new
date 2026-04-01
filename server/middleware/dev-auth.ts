@@ -33,7 +33,8 @@ export default defineEventHandler(async (event) => {
         name: 'Development User',
         avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=dev',
         provider: 'github' as const,
-        providerId: 'dev-mode'
+        providerId: 'dev-mode',
+        createdAt: new Date()
       }
 
       await setUserSession(event, {

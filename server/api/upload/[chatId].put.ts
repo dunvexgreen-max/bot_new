@@ -29,7 +29,7 @@ export default defineEventHandler(async (event) => {
     formKey: 'files',
     multiple: false,
     ensure: {
-      maxSize: FILE_UPLOAD_CONFIG.maxSize,
+      maxSize: FILE_UPLOAD_CONFIG.maxSizeString,
       types: [...FILE_UPLOAD_CONFIG.types]
     },
     put: {

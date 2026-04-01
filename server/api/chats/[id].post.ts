@@ -327,7 +327,7 @@ export default defineEventHandler(async (event) => {
         sendSources: true,
         sendReasoning: true
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      }) as any)
+      }) as ReadableStream<any>)
     },
     onFinish: async ({ messages }) => {
       await db.insert(schema.messages).values(messages.map(message => ({

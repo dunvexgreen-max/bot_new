@@ -76,21 +76,25 @@ async function handleSubmit(e: Event) {
     }
 
     if (uploadedFiles.value.length > 0) {
-      parts.push(...uploadedFiles.value)
+      parts.push(...uploadedFiles.value.map(f => ({
+        type: 'file' as const,
+        name: f.name,
+        mediaType: f.mediaType,
+        url: f.url
+      })))
     }
 
     const attachments = uploadedFiles.value.map(f => ({
+      type: 'file' as const,
       name: f.name,
-      contentType: f.mediaType,
+      mediaType: f.mediaType,
       url: f.url
     }))
 
     chat.sendMessage({
-      role: 'user',
       text: textToSubmit,
-      experimental_attachments: attachments,
-      parts
-    } as Parameters<typeof chat.sendMessage>[0])
+      files: attachments
+    })
 
     // Đợi 1 tick nhỏ rồi mới xóa để tránh IME bị giật
     await nextTick()

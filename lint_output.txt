@@ -1,0 +1,13 @@
+
+> lint
+> eslint .
+
+
+/Volumes/DATA_SSD/Projects/bot_new/server/api/chats/[id].post.ts
+  326:7   error    Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  327:7   warning  Unused eslint-disable directive (no problems were reported from '@typescript-eslint/no-explicit-any')
+  331:13  error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+
+✖ 3 problems (2 errors, 1 warning)
+  0 errors and 1 warning potentially fixable with the `--fix` option.
+

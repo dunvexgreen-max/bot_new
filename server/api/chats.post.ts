@@ -21,10 +21,11 @@ interface ExtendedUIMessage extends Omit<UIMessage, 'parts'> {
 
 export default defineEventHandler(async (event) => {
   const session = await getUserSession(event)
-  const { id, message } = await readValidatedBody(event, z.object({
+  const body = await readValidatedBody(event, z.object({
     id: z.string(),
     message: z.custom<UIMessage>()
   }).parse)
+  const { id, message } = body
 
   const [chat] = await db.insert(schema.chats).values({
     id,
@@ -39,7 +40,7 @@ export default defineEventHandler(async (event) => {
   const lastMessage = message as ExtendedUIMessage
   if (!lastMessage.parts || lastMessage.parts.length === 0) {
     const attachments = (lastMessage.experimental_attachments || lastMessage.files || []) as { url: string, contentType?: string, mediaType?: string, name: string }[]
-    const text = lastMessage.content || lastMessage.text || lastMessage.message || ''
+    const text = (lastMessage.content || lastMessage.text || lastMessage.message || '') as string
 
     if (attachments.length > 0) {
       lastMessage.parts = attachments.map(a => ({

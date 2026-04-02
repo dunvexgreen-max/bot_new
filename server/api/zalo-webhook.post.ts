@@ -55,7 +55,8 @@ export default defineEventHandler(async (event) => {
       }
     })
   } catch (err: unknown) {
-    console.error('Lỗi khi gửi tin nhắn Zalo:', (err as { data?: { message?: string } }).data || (err as Error).message)
+    const errorData = (err as { data?: { message?: string } })?.data || (err as Error)
+    console.error('Lỗi khi gửi tin nhắn Zalo:', errorData.message || String(errorData))
 
     // Fallback: Nếu là Zalo OA API truyền thống
     try {

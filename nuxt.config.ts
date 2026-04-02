@@ -9,6 +9,10 @@ export default defineNuxtConfig({
     'nuxt-charts',
     'nuxt-csurf'
   ],
+  sourcemap: {
+    server: false,
+    client: false
+  },
 
   devtools: {
     enabled: true

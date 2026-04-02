@@ -1,4 +1,3 @@
-// https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
   modules: [
     '@nuxt/eslint',
@@ -9,10 +8,6 @@ export default defineNuxtConfig({
     'nuxt-charts',
     'nuxt-csurf'
   ],
-  sourcemap: {
-    server: false,
-    client: false
-  },
 
   devtools: {
     enabled: true
@@ -32,21 +27,29 @@ export default defineNuxtConfig({
     tavilyApiKey: process.env.TAVILY_API_KEY
   },
 
-  experimental: {
-    viewTransition: true
-  },
-
-  compatibilityDate: '2024-07-11',
-
   nitro: {
+    preset: 'cloudflare-workers',
+    minify: true,
     experimental: {
       openAPI: true
+    },
+    externals: {
+      inline: ['vue', '@vue/runtime-core', '@vue/shared', 'consola']
     }
   },
 
   hub: {
     db: 'sqlite',
     blob: true
+  },
+
+  sourcemap: {
+    server: false,
+    client: false
+  },
+
+  experimental: {
+    viewTransition: true
   },
 
   vite: {
@@ -62,5 +65,7 @@ export default defineNuxtConfig({
         braceStyle: '1tbs'
       }
     }
-  }
+  },
+
+  compatibilityDate: '2024-07-11'
 })

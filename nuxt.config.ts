@@ -27,6 +27,17 @@ export default defineNuxtConfig({
     tavilyApiKey: process.env.TAVILY_API_KEY
   },
 
+  sourcemap: {
+    server: false,
+    client: false
+  },
+
+  experimental: {
+    viewTransition: true
+  },
+
+  compatibilityDate: '2024-07-11',
+
   nitro: {
     preset: 'cloudflare-pages',
     minify: true,
@@ -43,15 +54,6 @@ export default defineNuxtConfig({
     blob: true
   },
 
-  sourcemap: {
-    server: false,
-    client: false
-  },
-
-  experimental: {
-    viewTransition: true
-  },
-
   vite: {
     optimizeDeps: {
       include: ['striptags']
@@ -65,7 +67,5 @@ export default defineNuxtConfig({
         braceStyle: '1tbs'
       }
     }
-  },
-
-  compatibilityDate: '2024-07-11'
+  }
 })

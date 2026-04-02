@@ -28,7 +28,7 @@ export default defineNuxtConfig({
   },
 
   nitro: {
-    preset: 'cloudflare-workers',
+    preset: 'cloudflare-pages',
     minify: true,
     experimental: {
       openAPI: true

@@ -1,5 +1,5 @@
 name = "bot-new"
-main = ".output/server/index.mjs"
+# main = ".output/server/index.mjs"
 compatibility_date = "2026-04-02"
 compatibility_flags = ["nodejs_compat"]
 

@@ -1,0 +1,7 @@
+name = "bot-new"
+main = ".output/server/index.mjs"
+compatibility_date = "2026-04-02"
+
+[vars]
+# Runtime variables can also be defined here, 
+# but we recommend using Cloudflare Dashboard for SECRETS.

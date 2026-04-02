@@ -1,0 +1,16 @@
+#:schema node_modules/wrangler/config-schema.json
+name = "bot-new"
+main = "./.output/server/index.mjs"
+compatibility_date = "2024-07-11"
+
+# Pages configuration
+pages_build_output_dir = "./.output/public"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "bot-db"
+database_id = "b133646d-1bda-4ad3-95a1-4a6938f4fd80"
+
+[[kv_namespaces]]
+binding = "HUBNUXT_CACHE"
+id = "1a144e8d38af4d79975bf23acedef45b"

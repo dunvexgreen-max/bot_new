@@ -35,8 +35,8 @@
     "consola": "^3.4.0",
     "date-fns": "^4.1.0",
     "drizzle-orm": "^0.45.2",
-    "firebase-admin": "^13.7.0",
     "motion-v": "^2.2.0",
+
     "nuxt": "^4.4.2",
     "nuxt-auth-utils": "^0.5.29",
     "nuxt-charts": "^2.1.4",

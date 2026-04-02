@@ -1,26 +1,8 @@
 import { tool } from 'ai'
 import { z } from 'zod'
-import { readFileSync } from 'fs'
-import { join } from 'path'
+import { fetchFirestoreCollection, parseFirestoreDocument } from './firebase'
+// Removed Node-only dependencies (fs, path, firebase-admin) for Cloudflare compatibility
 
-// Initialize Firebase Admin (lazy)
-const getFirebaseAdmin = async () => {
-  const importedModule = await import('firebase-admin')
-  // Mở hộp ESM Module để lấy chính xác module cốt lõi (default export)
-  const admin = importedModule.default || importedModule
-
-  if (!admin.apps || admin.apps.length === 0) {
-    try {
-      const serviceAccount = JSON.parse(readFileSync(join(process.cwd(), 'firebase-service-account.json'), 'utf8'))
-      admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount)
-      })
-    } catch (e) {
-      console.error('Firebase Admin init error:', e)
-    }
-  }
-  return admin
-}
 
 export const saveDebtTool = tool({
   description: 'Save or update a customer\'s debt information in the database.',
@@ -168,46 +150,36 @@ export const searchTool = tool({
 })
 
 export const syncFirestoreToSupabaseTool = tool({
-  description: 'Sync data from a Firebase Firestore collection to a Supabase table. Use this for orders, customers, payouts, etc.',
+  description: 'Đồng bộ dữ liệu từ Firestore (đối tác cũ) về Supabase (hệ thống hiện tại). Cần chạy lệnh này khi Admin Thông yêu cầu cập nhật dữ liệu mới nhất.',
   inputSchema: z.object({
-    collectionName: z.string().describe('The name of the Firestore collection (e.g., "orders", "affiliate_payouts").'),
-    targetTable: z.string().describe('The destination table name in Supabase (usually same as collection).'),
-    limit: z.number().optional().default(10).describe('Number of records to sync.')
+    collectionNames: z.array(z.string()).describe('Danh sách các bảng/collection cần đồng bộ (vd: users, orders, cash_book).')
   }),
-  execute: async ({ collectionName, targetTable, limit }) => {
+  execute: async ({ collectionNames }) => {
     try {
-      const admin = await getFirebaseAdmin()
-      const db = admin.firestore()
-
-      const snapshot = await db.collection(collectionName).limit(limit).get()
-
-      if (snapshot.empty) return { message: 'Thành công truy cập, nhưng hoàn toàn KHÔNG tìm thấy dữ liệu bất kỳ nào trong collection: ' + collectionName }
-
-      const records = snapshot.docs.map((doc) => {
-        const rawData = doc.data()
-        return {
-          id: doc.id,
-          user_email: rawData.ownerEmail || rawData.email || rawData.createdByEmail || rawData.userEmail || 'unknown',
-          data: rawData,
-          sync_at: new Date().toISOString()
-        }
-      })
-
+      const results: any[] = []
       const supabase = useSupabase()
-      const { data, error } = await supabase
-        .from(targetTable)
-        .upsert(records, { onConflict: 'id' })
-        .select()
 
-      if (error) return { error: `Cơ sở dữ liệu Supabase từ chối nhận vì lỗi cấu trúc bảng '${targetTable}'. Chi tiết lỗi: ${error.message}` }
-      return { success: true, count: records.length, synced: data }
+      for (const collection of collectionNames) {
+        // Fetch via Cloudflare-compatible REST util
+        const documents = await fetchFirestoreCollection(collection)
+        const parsedData = documents.map(parseFirestoreDocument)
+
+        if (parsedData.length > 0) {
+          // Upsert to Supabase
+          const { error } = await supabase.from(collection).upsert(parsedData)
+          results.push({ collection, count: parsedData.length, status: error ? `Error: ${error.message}` : 'Success' })
+        } else {
+          results.push({ collection, count: 0, status: 'No data found in Firestore' })
+        }
+      }
+
+      return { success: true, results }
     } catch (e: unknown) {
-      console.error('Lỗi sập Tool Sync:', e)
-      const errorMessage = e instanceof Error ? e.message : String(e)
-      return { error: 'Cực kỳ nghiêm trọng: Tool đã bị SẬP do lỗi kỹ thuật mạng hoặc code. Chi tiết máy chủ báo lại: ' + errorMessage }
+      return { error: `Đồng bộ thất bại: ${(e as Error).message}` }
     }
   }
 })
+
 
 export const queryAppDatabaseTool = tool({
   description: 'Tra cứu dữ liệu từ cơ sở dữ liệu thực của app. Dùng quyền ALL_ADMIN để xem tất cả nếu được Admin yêu cầu, hoặc gắn đúng email để chặn xem riêng.',

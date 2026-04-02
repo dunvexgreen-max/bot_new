@@ -49,9 +49,11 @@ export const messages = sqliteTable('messages', {
   index('messages_chat_id_idx').on(table.chatId)
 ])
 
+/*
 export const messagesRelations = relations(messages, ({ one }) => ({
   chat: one(chats, {
     fields: [messages.chatId],
     references: [chats.id]
   })
 }))
+*/

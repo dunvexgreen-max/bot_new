@@ -1,12 +1,17 @@
 export default defineNuxtConfig({
+  ssr: false,
   modules: [
     '@nuxt/eslint',
     '@nuxt/ui',
     '@comark/nuxt',
     '@nuxthub/core',
     'nuxt-auth-utils',
-    'nuxt-charts',
+//    'nuxt-charts',
     'nuxt-csurf'
+
+
+
+
   ],
 
   devtools: {
@@ -39,19 +44,12 @@ export default defineNuxtConfig({
   compatibilityDate: '2024-07-11',
 
   nitro: {
-    preset: 'cloudflare-pages',
-    minify: true,
-    experimental: {
-      openAPI: true
-    },
-    externals: {
-      inline: ['vue', '@vue/runtime-core', '@vue/shared', 'consola']
-    }
+    preset: 'cloudflare-pages'
   },
 
   hub: {
     db: 'sqlite',
-    blob: true
+    blob: false
   },
 
   vite: {

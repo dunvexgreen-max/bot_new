@@ -6,7 +6,3 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 # Runtime variables can also be defined here, 
 # but we recommend using Cloudflare Dashboard for SECRETS.
-
-[build]
-command = "npm run build"
-path = ".output/public"
